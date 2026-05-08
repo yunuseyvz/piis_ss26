@@ -10,7 +10,7 @@ The ideas below range from **augmentation** to **collaboration** to **delegation
 
 - **Augmentation**: the human remains fully in control and the model mainly assists.
 - **Collaboration**: the notebook becomes a mixed-initiative workspace shared by human and model.
-- **Delegation**: the model takes on more of the notebook structuring, explanation, or analysis work.
+- **Delegation**: the model takes on more of the notebook structuring, explanation, or anawlysis work.
 
 ## 1. Bidirectional Narrative-Code Synchronization
 

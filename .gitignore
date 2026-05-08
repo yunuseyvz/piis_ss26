@@ -1,3 +1,14 @@
 .venv/
+**/.venv/
 __pycache__/
 .ipynb_checkpoints/
+**/.ipynb_checkpoints/
+.env
+.env.local
+**/*.egg-info/
+jupyterlab_extensions/*/node_modules/
+jupyterlab_extensions/*/lib/
+jupyterlab_extensions/*/build/
+jupyterlab_extensions/*/jupyterlab_piis_assistant/labextension/
+jupyterlab_extensions/*/jupyterlab_piis_surfaces/labextension/
+jupyterlab_extensions/*/tsconfig.tsbuildinfo

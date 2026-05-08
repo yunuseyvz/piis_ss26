@@ -9,6 +9,7 @@ The main artifact is a mock Jupyter notebook that acts as a realistic computatio
 - `notebooks/ai_enhanced_literate_programming_demo.ipynb`: the example notebook used as a baseline for later AI experiments.
 - `pyproject.toml`: the `uv` project configuration and Python dependencies.
 - `ideas.md`: a collection of course ideas for enhancing notebook-style literate programming with AI and LLM systems.
+- `jupyterlab_extensions/piis-assistant`: a minimal JupyterLab extension that adds a live AI assistant sidebar.
 
 ## What The Notebook Covers
 
@@ -48,6 +49,40 @@ uv run jupyter lab
 Then open:
 
 - `notebooks/ai_enhanced_literate_programming_demo.ipynb`
+
+## JupyterLab Assistant Extension
+
+The repo now includes a minimal JupyterLab extension that adds a simple assistant sidebar.
+
+The sidebar sends prompts to a server-side Jupyter route, which reads the repository root `.env` file and expects:
+
+- `HF_OPENAI_BASE_URL`
+- `HF_OPENAI_MODEL`
+- `HF_OPENAI_API_KEY`
+
+From the repository root:
+
+```bash
+uv sync
+cd jupyterlab_extensions/piis-assistant
+npm install
+npm run build
+uv pip install --python ../../.venv/bin/python .
+cd ../..
+uv run jupyter lab
+```
+
+After JupyterLab opens in the browser:
+
+- the `Assistant` sidebar should appear on the left automatically
+- you can also use the command palette entry `PIIS: Focus Assistant Sidebar`
+- type a prompt, send it, and the reply will appear in the sidebar
+
+More extension details live in `jupyterlab_extensions/piis-assistant/README.md`.
+
+## VS Code Note
+
+This is a JupyterLab extension, so it works in browser-based JupyterLab and does **not** render inside the VS Code notebook editor.
 
 ## Optional Commands
 

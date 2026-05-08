@@ -1,0 +1,5 @@
+{
+  "packageManager": "python",
+  "packageName": "jupyterlab-piis-assistant",
+  "uninstallInstructions": "Use `uv pip uninstall --python ../../.venv/bin/python jupyterlab-piis-assistant` from the repository root."
+}
