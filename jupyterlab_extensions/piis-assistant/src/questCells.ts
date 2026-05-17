@@ -21,6 +21,7 @@ import type { NotebookPanel } from '@jupyterlab/notebook';
 
 import { apiRequest, escapeHtml } from './api';
 import { QuestMetadataStore } from './questStore';
+import { toFriendlyError } from './uiFeedback';
 import type {
   AnalysisResponse,
   CellAnalysis,
@@ -49,7 +50,10 @@ interface SlotEntry {
   host: HTMLElement;
   loading: boolean;
   record: QuizRecord | null;
-  errorMessage: string | null;
+  error: { kind: string; message: string } | null;
+  /** Dismissed by the user. Persisted into the QuizRecord (creates an
+   * empty stub record if there isn't one yet). */
+  hidden: boolean;
 }
 
 export class QuestCellRenderer {
@@ -83,18 +87,25 @@ export class QuestCellRenderer {
         const host = document.createElement('div');
         host.className = HOST_CLASS;
         host.dataset.slotId = slotId;
+        const stored = storedQuizzes[slotId] ?? null;
         entry = {
           slot,
           host,
           loading: false,
-          record: storedQuizzes[slotId] ?? null,
-          errorMessage: null
+          record: stored,
+          error: null,
+          hidden: Boolean(stored?.hidden)
         };
         this.entries.set(slotId, entry);
       } else {
         entry.slot = slot;
-        if (!entry.record && storedQuizzes[slotId]) {
-          entry.record = storedQuizzes[slotId];
+        const stored = storedQuizzes[slotId];
+        if (stored) {
+          // Always sync hidden flag from disk so a saved/reloaded notebook honours it.
+          entry.hidden = Boolean(stored.hidden);
+          if (!entry.record) {
+            entry.record = stored;
+          }
         }
       }
 
@@ -160,7 +171,7 @@ export class QuestCellRenderer {
       return;
     }
     entry.loading = true;
-    entry.errorMessage = null;
+    entry.error = null;
     this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
 
     try {
@@ -186,7 +197,7 @@ export class QuestCellRenderer {
       entry.record = record;
       this.callbacks.getStore().writeQuiz(record);
     } catch (error) {
-      entry.errorMessage = `Could not generate quiz: ${(error as Error).message}`;
+      entry.error = toFriendlyError(error);
     } finally {
       entry.loading = false;
       this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
@@ -234,7 +245,7 @@ export class QuestCellRenderer {
       }
       this.callbacks.applyState(response.state);
     } catch (error) {
-      entry.errorMessage = `Could not record answer: ${(error as Error).message}`;
+      entry.error = toFriendlyError(error);
     }
 
     // Persist the updated record so the answer survives reloads.
@@ -247,6 +258,27 @@ export class QuestCellRenderer {
     const record = entry.record;
     const anchorCell = cells.find(c => c.cellId === slot.anchorCellId);
     const anchorLabel = anchorCell ? `Cell ${anchorCell.index + 1}` : 'anchor cell';
+
+    if (entry.hidden) {
+      const solved = Boolean(record?.answeredCorrectly);
+      const labelEmoji = solved ? '✅' : '🎯';
+      const labelText = solved ? 'Quiz solved · hidden' : 'Quiz hidden';
+      entry.host.innerHTML = `
+        <div class="flowquest-questCellStub">
+          <span class="flowquest-questCellStubIcon">${labelEmoji}</span>
+          <div class="flowquest-questCellStubBody">
+            <div class="flowquest-questCellStubTitle">${escapeHtml(labelText)}</div>
+            <div class="flowquest-questCellStubMeta">${escapeHtml(
+              `${slot.region} checkpoint on ${anchorLabel}`
+            )}</div>
+          </div>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="reveal">↩️ Show</button>
+        </div>
+      `;
+      this.bindActions(entry);
+      return;
+    }
+
     const regionIcon = anchorCell?.regionIcon ?? '✨';
     const status = record
       ? record.answeredCorrectly
@@ -255,49 +287,98 @@ export class QuestCellRenderer {
           ? 'in-progress'
           : 'ready'
       : 'empty';
+    const kindIcon = KIND_ICON[slot.kind] ?? '✨';
+
+    const attemptsHtml = record
+      ? `<span class="flowquest-questCellAttempts" title="Attempts">${
+          record.attempts
+            ? Array.from({ length: Math.min(record.attempts, 4) })
+                .map(
+                  (_, i) =>
+                    `<span class="flowquest-questCellAttempt ${
+                      record.answeredCorrectly && i === record.attempts - 1
+                        ? 'is-correct'
+                        : ''
+                    }"></span>`
+                )
+                .join('')
+            : ''
+        }</span>`
+      : '';
 
     const header = `
       <div class="flowquest-questCellHeader flowquest-questCellHeader-${escapeHtml(slot.region)}">
-        <div class="flowquest-questCellBadge">
-          <span class="flowquest-questCellBadgeIcon">${escapeHtml(
-            KIND_ICON[slot.kind] ?? '✨'
-          )}</span>
-          <span class="flowquest-questCellBadgeLabel">FlowQuest · ${escapeHtml(slot.kind)}</span>
+        <div class="flowquest-questCellHeaderTop">
+          <span class="flowquest-questCellEyebrow">FlowQuest checkpoint</span>
+          <span class="flowquest-questCellStatus flowquest-questCellStatus-${escapeHtml(status)}">
+            ${escapeHtml(renderStatusLabel(status, record))}
+          </span>
         </div>
-        <div class="flowquest-questCellTitle">
-          <span class="flowquest-questCellRegion">${escapeHtml(regionIcon)} ${escapeHtml(slot.region)}</span>
-          <span class="flowquest-questCellAnchor">anchored to ${escapeHtml(anchorLabel)}</span>
-        </div>
-        <div class="flowquest-questCellStatus flowquest-questCellStatus-${escapeHtml(status)}">
-          ${escapeHtml(renderStatusLabel(status, record))}
+        <div class="flowquest-questCellHeaderMain">
+          <span class="flowquest-questCellMark">${escapeHtml(kindIcon)}</span>
+          <div class="flowquest-questCellHeaderTitle">
+            <div class="flowquest-questCellRegion">
+              <span class="flowquest-questCellRegionIcon">${escapeHtml(regionIcon)}</span>
+              <span>${escapeHtml(slot.region)}</span>
+            </div>
+            <div class="flowquest-questCellAnchor">on ${escapeHtml(anchorLabel)}</div>
+          </div>
+          ${attemptsHtml}
         </div>
       </div>
     `;
 
     let body = '';
     if (entry.loading && !record) {
-      body = `<div class="flowquest-questCellLoading">Generating quiz…</div>`;
-    } else if (entry.errorMessage) {
       body = `
-        <div class="flowquest-questCellError">${escapeHtml(entry.errorMessage)}</div>
-        <div class="flowquest-actionsRow">
-          <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate">Try again</button>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Dismiss</button>
+        <div class="flowquest-questCellLoadingPanel" role="status" aria-live="polite">
+          <span class="flowquest-thinkingSpinner"></span>
+          <div>
+            <div class="flowquest-questCellLoadingTitle">Generating quiz…</div>
+            <div class="flowquest-questCellLoadingHint">
+              Reading <strong>${escapeHtml(anchorLabel)}</strong> and the cells around it.
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (entry.error) {
+      const icon =
+        entry.error.kind === 'timeout'
+          ? '⏱️'
+          : entry.error.kind === 'auth'
+            ? '🔐'
+            : '⚠️';
+      body = `
+        <div class="flowquest-inlineError">
+          <div class="flowquest-inlineErrorHead">
+            <span class="flowquest-inlineErrorIcon">${escapeHtml(icon)}</span>
+            <span>${escapeHtml(entry.error.message)}</span>
+          </div>
+          <div class="flowquest-actionsRow">
+            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate">↻ Retry</button>
+            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Dismiss</button>
+          </div>
         </div>
       `;
     } else if (!record) {
       body = `
         <div class="flowquest-questCellIntro">
-          <p>FlowQuest spotted a good <strong>${escapeHtml(
-            slot.region
-          )}</strong> checkpoint here. Generate a quiz about ${escapeHtml(
-            slot.topic
-          )} and earn <strong>+5 Notebook Health</strong> when you get it right.</p>
+          <div class="flowquest-questCellIntroIcon">🎯</div>
+          <div class="flowquest-questCellIntroBody">
+            <div class="flowquest-questCellIntroTitle">Test your understanding of this region</div>
+            <p>One short multiple-choice question about <strong>${escapeHtml(
+              slot.topic
+            )}</strong>. <strong>+5 Notebook Health</strong> if you get it right.</p>
+          </div>
         </div>
         <div class="flowquest-actionsRow">
           <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate" ${
             entry.loading ? 'disabled' : ''
-          }>${entry.loading ? 'Generating…' : '🎯 Generate quiz'}</button>
+          }>${
+            entry.loading
+              ? `<span class="flowquest-spinnerInline"><span class="flowquest-spinnerDot"></span><span class="flowquest-spinnerDot"></span><span class="flowquest-spinnerDot"></span><span>Generating…</span></span>`
+              : '🎯 Start the quiz'
+          }</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Skip</button>
         </div>
       `;
@@ -333,17 +414,19 @@ export class QuestCellRenderer {
       const feedback = selected !== null
         ? record.answeredCorrectly
           ? `<div class="flowquest-quizFeedback is-correct">
-               <strong>Correct.</strong> ${escapeHtml(quiz.explanation)}
+               <span class="flowquest-quizFeedbackIcon">✓</span>
+               <span><strong>Correct.</strong> ${escapeHtml(quiz.explanation)}</span>
              </div>`
           : `<div class="flowquest-quizFeedback is-wrong">
-               <strong>Not quite.</strong> ${escapeHtml(
+               <span class="flowquest-quizFeedbackIcon">✗</span>
+               <span><strong>Not quite.</strong> ${escapeHtml(
                  quiz.options[quiz.correctIndex] ?? ''
-               )} is the right answer. ${escapeHtml(quiz.explanation)}
+               )} is the right answer. ${escapeHtml(quiz.explanation)}</span>
              </div>`
         : '';
 
       const xpLine = record.awardedXp
-        ? `<div class="flowquest-quizXp">+${record.awardedXp} health earned</div>`
+        ? `<div class="flowquest-quizXp">+${record.awardedXp} Notebook Health earned</div>`
         : '';
 
       body = `
@@ -351,7 +434,7 @@ export class QuestCellRenderer {
         <ul class="flowquest-quizOptions">${optionsHtml}</ul>
         ${feedback}
         ${xpLine}
-        <div class="flowquest-actionsRow">
+        <div class="flowquest-actionsRow flowquest-actionsRow-quiz">
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="regenerate">↻ New question</button>
           ${
             !locked
@@ -363,7 +446,7 @@ export class QuestCellRenderer {
     }
 
     entry.host.innerHTML = `
-      <div class="flowquest-questCellInner">
+      <div class="flowquest-questCellInner flowquest-questCellInner-${escapeHtml(slot.region)}">
         ${header}
         <div class="flowquest-questCellBody">${body}</div>
       </div>
@@ -379,11 +462,17 @@ export class QuestCellRenderer {
           if (action === 'regenerate') {
             entry.record = null;
           }
+          // Re-showing through (re)generation also un-hides.
+          entry.hidden = false;
           void this.generateQuiz(entry.slot.slotId);
           return;
         }
         if (action === 'dismiss') {
-          entry.host.style.display = 'none';
+          this.setHidden(entry, true);
+          return;
+        }
+        if (action === 'reveal') {
+          this.setHidden(entry, false);
           return;
         }
         if (action === 'answer') {
@@ -394,6 +483,29 @@ export class QuestCellRenderer {
         }
       };
     });
+  }
+
+  /** Persist hidden flag and re-render. Creates a stub record if needed so
+   * the flag is round-tripped through metadata.flowquest. */
+  private setHidden(entry: SlotEntry, hidden: boolean): void {
+    entry.hidden = hidden;
+    const stub: QuizRecord =
+      entry.record ?? {
+        slotId: entry.slot.slotId,
+        anchorCellId: entry.slot.anchorCellId,
+        region: entry.slot.region,
+        // Empty placeholder; we only persist hidden state in this case.
+        quiz: { question: '', options: [], correctIndex: 0, explanation: '' },
+        generatedAt: Date.now() / 1000,
+        selectedIndex: null,
+        answeredCorrectly: false,
+        attempts: 0,
+        awardedXp: 0
+      };
+    stub.hidden = hidden;
+    entry.record = stub;
+    this.callbacks.getStore().writeQuiz(stub);
+    this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
   }
 
   private entries = new Map<string, SlotEntry>();

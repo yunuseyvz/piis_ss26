@@ -47,6 +47,13 @@ setup(
     packages=[PYTHON_PACKAGE],
     include_package_data=True,
     python_requires=">=3.10",
-    install_requires=["jupyter_server>=2.0", "openai>=1.78.1", "python-dotenv>=1.1.0"],
+    install_requires=[
+        "jupyter_server>=2.0",
+        "openai>=1.78.1",
+        "python-dotenv>=1.1.0",
+        # Optional: used to keep the API key out of plaintext on disk.
+        # FlowQuest gracefully falls back if no keychain backend is found.
+        "keyring>=24.0",
+    ],
     data_files=[*iter_labextension_files(), *iter_server_config_files()],
 )

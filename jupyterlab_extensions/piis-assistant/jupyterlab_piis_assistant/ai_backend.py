@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -54,11 +55,14 @@ def _difficulty_suffix(profile: dict[str, Any], key: str) -> str:
 
 
 class AssistantClient:
-    def __init__(self, base_url: str, model: str, api_key: str, timeout: float = 60.0):
+    def __init__(self, base_url: str, model: str, api_key: str, timeout: float = 45.0):
         self.base_url = base_url
         self.model = model
         self.api_key = api_key
+        # Slightly shorter default timeout than the SDK's 600s — long calls
+        # are usually a stuck endpoint. The retry layer adds resilience.
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
+        self._timeout = timeout
 
     @classmethod
     def from_env(cls, start_path: str | Path | None = None) -> "AssistantClient | None":
@@ -76,7 +80,14 @@ class AssistantClient:
         temperature: float = 0.2,
         max_tokens: int = 700,
         response_format: dict[str, str] | None = None,
+        max_attempts: int = 3,
+        backoff_seconds: float = 1.5,
     ) -> str:
+        """Call the chat completion endpoint with bounded retries.
+
+        Retries on transient errors (timeout, rate-limit, network). Fails
+        fast on 4xx that won't change on retry (auth, bad request).
+        """
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -85,19 +96,99 @@ class AssistantClient:
         }
         if response_format is not None:
             kwargs["response_format"] = response_format
-        try:
-            response = self.client.chat.completions.create(**kwargs)
-        except Exception:
-            # Some backends reject `response_format`. Retry without it.
-            if response_format is not None:
-                kwargs.pop("response_format", None)
+
+        last_exc: BaseException | None = None
+        used_response_format_fallback = False
+        for attempt in range(1, max_attempts + 1):
+            try:
                 response = self.client.chat.completions.create(**kwargs)
-            else:
-                raise
-        return (response.choices[0].message.content or "").strip()
+                content = (response.choices[0].message.content or "").strip()
+                return content
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                kind, message = _classify_openai_error(exc)
+                # Some backends reject `response_format`; drop it and retry once
+                # without bumping the attempt counter so we still get our full budget.
+                if (
+                    response_format is not None
+                    and not used_response_format_fallback
+                    and ("response_format" in str(exc).lower() or kind == "other")
+                ):
+                    kwargs.pop("response_format", None)
+                    used_response_format_fallback = True
+                    continue
+
+                # Don't retry hard failures.
+                if kind in {"auth"}:
+                    raise AssistantBackendError(message, kind=kind, original=exc) from exc
+
+                if attempt >= max_attempts:
+                    raise AssistantBackendError(message, kind=kind, original=exc) from exc
+
+                # Exponential-ish backoff capped at ~6s so we don't sit forever.
+                delay = min(6.0, backoff_seconds * (2 ** (attempt - 1)))
+                time.sleep(delay)
+
+        # Defensive: should never get here.
+        raise AssistantBackendError(
+            "The model endpoint did not respond after several attempts.",
+            kind="timeout",
+            original=last_exc,
+        )
+
+
+class AssistantBackendError(RuntimeError):
+    """Raised when the LLM call cannot be completed.
+
+    Carries a ``user_message`` field meant to be safe to surface in the UI
+    (no stack traces, no API keys), and an ``error_kind`` we can branch on
+    in the frontend (``timeout``, ``rate_limit``, ``auth``, ``network``,
+    ``other``).
+    """
+
+    def __init__(self, user_message: str, *, kind: str = "other", original: BaseException | None = None) -> None:
+        super().__init__(user_message)
+        self.user_message = user_message
+        self.error_kind = kind
+        self.original = original
+
+
+def _classify_openai_error(exc: BaseException) -> tuple[str, str]:
+    """Map an OpenAI client exception to (kind, friendly_message)."""
+    name = exc.__class__.__name__
+    text = str(exc).lower()
+    # The OpenAI SDK exposes specific subclasses but we avoid hard imports so
+    # this stays compatible across SDK versions.
+    if name in {"APITimeoutError", "Timeout"} or "timed out" in text or "timeout" in text:
+        return (
+            "timeout",
+            "The model took too long to respond. Please try again — the endpoint may be warming up.",
+        )
+    if name in {"RateLimitError"} or "rate limit" in text or "429" in text:
+        return (
+            "rate_limit",
+            "The endpoint is rate-limiting us. Wait a moment and retry.",
+        )
+    if name in {"AuthenticationError", "PermissionDeniedError"} or "401" in text or "403" in text:
+        return (
+            "auth",
+            "The API key was rejected. Open FlowQuest → Settings and re-enter your key.",
+        )
+    if name in {"APIConnectionError"} or "connection" in text or "connect" in text:
+        return (
+            "network",
+            "Could not reach the model endpoint. Check your network or the base URL in Settings.",
+        )
+    if name in {"BadRequestError", "UnprocessableEntityError"}:
+        return ("other", "The endpoint rejected the request. Try a different model.")
+    return ("other", f"The model endpoint returned an error: {exc.__class__.__name__}.")
 
 
 def _clip_text(value: str, limit: int = 1400) -> str:
+    stripped = value.strip()
+    if len(stripped) <= limit:
+        return stripped
+    return f"{stripped[: limit - 1]}…"
     stripped = value.strip()
     if len(stripped) <= limit:
         return stripped

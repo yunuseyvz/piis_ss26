@@ -161,6 +161,9 @@ export interface QuizRecord {
   answeredCorrectly: boolean;
   attempts: number;
   awardedXp: number;
+  /** When true, the user dismissed the quiz cell — render a small stub
+   * with a "show again" action instead of the full panel. */
+  hidden?: boolean;
 }
 
 export interface FlatIssue {
@@ -233,6 +236,8 @@ export interface GlobalSettings {
   baseUrl: string;
   apiKeySet: boolean;
   apiKeyPreview: string;
+  apiKeyStorage?: 'keychain' | 'file' | 'env' | 'none';
+  keychainAvailable?: boolean;
   settingsFile: string | null;
   envFile: string | null;
   favoriteModels: string[];

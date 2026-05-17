@@ -13,6 +13,7 @@
 
 import { apiRequest, escapeHtml } from './api';
 import type { DifficultyLevel, GlobalSettings, QuestState } from './types';
+import { inlineSpinnerHtml, toFriendlyError } from './uiFeedback';
 
 const HOST_CLASS = 'flowquest-settingsHost';
 
@@ -128,7 +129,8 @@ export class SettingsPanel {
       this.formApiKey = '';
       this.callbacks.flashToast('Settings saved.');
     } catch (error) {
-      this.callbacks.flashToast(`Save failed: ${(error as Error).message}`);
+      const friendly = toFriendlyError(error);
+      this.callbacks.flashToast(`Save failed: ${friendly.message}`);
     } finally {
       this.saving = false;
       this.render();
@@ -276,9 +278,31 @@ export class SettingsPanel {
       return '<div class="flowquest-dim">Loading settings…</div>';
     }
     const settings = this.settings;
+    const storage = settings?.apiKeyStorage ?? 'none';
+    const keychainAvailable = Boolean(settings?.keychainAvailable);
+
     const apiKeyHint = settings?.apiKeySet
       ? `Currently set (${escapeHtml(settings.apiKeyPreview || 'hidden')}). Leave blank to keep it; type a new value to replace.`
       : 'No key on file yet. Paste one below to enable LLM features.';
+
+    const storageNote = (() => {
+      if (storage === 'keychain') {
+        return `<div class="flowquest-dim flowquest-storageNote is-secure">🔐 Stored in your OS keychain. Not on disk.</div>`;
+      }
+      if (storage === 'file') {
+        return `<div class="flowquest-dim flowquest-storageNote is-warn">⚠️ Stored in <code>~/.flowquest/settings.json</code> (mode 0600). Install <code>keyring</code> with a usable backend (e.g. <code>libsecret</code> on Linux) to move it to your OS keychain.</div>`;
+      }
+      if (storage === 'env') {
+        return `<div class="flowquest-dim flowquest-storageNote">From environment / <code>.env</code>. Saving here will move it to ${
+          keychainAvailable ? 'your OS keychain' : '<code>settings.json</code>'
+        }.</div>`;
+      }
+      return `<div class="flowquest-dim flowquest-storageNote">${
+        keychainAvailable
+          ? 'Saving will store the key in your OS keychain.'
+          : 'Saving will store the key in <code>~/.flowquest/settings.json</code> (mode 0600). Install a keyring backend for stronger storage.'
+      }</div>`;
+    })();
     const favorites = settings?.favoriteModels ?? [];
     const fileLine = settings?.settingsFile
       ? `Stored in ${escapeHtml(settings.settingsFile)}`
@@ -318,10 +342,13 @@ export class SettingsPanel {
           placeholder="hf_..."
           value="${escapeHtml(this.formApiKey)}" />
         <div class="flowquest-dim">${apiKeyHint}</div>
+        ${storageNote}
 
         <div class="flowquest-actionsRow">
           <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="save"
-            ${this.saving ? 'disabled' : ''}>${this.saving ? 'Saving…' : 'Save settings'}</button>
+            ${this.saving ? 'disabled' : ''}>${
+              this.saving ? inlineSpinnerHtml('Saving…') : 'Save settings'
+            }</button>
         </div>
         <div class="flowquest-dim">${fileLine}</div>
       </section>

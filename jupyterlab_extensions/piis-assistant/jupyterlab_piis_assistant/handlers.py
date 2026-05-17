@@ -12,6 +12,7 @@ from tornado import web
 
 from . import gamification, criteria, settings as settings_store
 from .ai_backend import (
+    AssistantBackendError,
     baseline_health_payload,
     chat_payload,
     explain_cell_payload,
@@ -21,6 +22,52 @@ from .ai_backend import (
     status_payload,
 )
 from .analyzer import analyze_notebook, result_to_dict
+
+
+# Per-LLM-route wall-clock budget. The AssistantClient already retries with
+# backoff; this is the absolute ceiling so a stuck request doesn't block the
+# Tornado worker forever.
+_LLM_DEADLINE_SECONDS = 75.0
+
+
+async def _run_llm(handler: APIHandler, fn, **kwargs):
+    """Run a blocking LLM call in a worker thread with a hard deadline.
+
+    Translates :class:`AssistantBackendError` into a structured 503 the
+    frontend can render nicely (it carries a friendly ``message`` plus an
+    ``errorKind`` discriminator).
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(fn, **kwargs),
+            timeout=_LLM_DEADLINE_SECONDS,
+        )
+    except asyncio.TimeoutError as exc:
+        _finish_llm_error(
+            handler,
+            status=503,
+            kind="timeout",
+            message=(
+                "The model didn't respond within "
+                f"{int(_LLM_DEADLINE_SECONDS)} seconds. Try again — the endpoint "
+                "may be warming up."
+            ),
+        )
+        raise web.Finish() from exc
+    except AssistantBackendError as exc:
+        _finish_llm_error(
+            handler,
+            status=503,
+            kind=exc.error_kind,
+            message=exc.user_message,
+        )
+        raise web.Finish() from exc
+
+
+def _finish_llm_error(handler: APIHandler, *, status: int, kind: str, message: str) -> None:
+    handler.set_status(status)
+    handler.set_header("Content-Type", "application/json")
+    handler.finish(json.dumps({"errorKind": kind, "message": message, "reason": message}))
 
 
 def _root_dir(handler: APIHandler) -> Path:
@@ -63,20 +110,17 @@ class AssistantChatHandler(APIHandler):
         notebook = body.get("notebook")
         if not isinstance(prompt, str):
             raise web.HTTPError(400, reason="Prompt must be a string.")
+        if not prompt.strip():
+            raise web.HTTPError(400, reason="Prompt must not be empty.")
 
-        try:
-            payload = await asyncio.to_thread(
-                chat_payload,
-                prompt=prompt,
-                history=history,
-                notebook=notebook,
-                start_path=_root_dir(self),
-            )
-        except ValueError as exc:
-            raise web.HTTPError(400, reason=str(exc)) from exc
-        except Exception as exc:
-            raise web.HTTPError(500, reason=str(exc)) from exc
-
+        payload = await _run_llm(
+            self,
+            chat_payload,
+            prompt=prompt,
+            history=history,
+            notebook=notebook,
+            start_path=_root_dir(self),
+        )
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
 
@@ -165,15 +209,13 @@ class InitializeHandler(APIHandler):
         if not isinstance(analysis, dict):
             raise web.HTTPError(400, reason="analysis payload is required")
 
-        try:
-            baseline = await asyncio.to_thread(
-                baseline_health_payload,
-                analysis=analysis,
-                start_path=_root_dir(self),
-                difficulty=_difficulty_from_body(body),
-            )
-        except Exception as exc:
-            raise web.HTTPError(500, reason=str(exc)) from exc
+        baseline = await _run_llm(
+            self,
+            baseline_health_payload,
+            analysis=analysis,
+            start_path=_root_dir(self),
+            difficulty=_difficulty_from_body(body),
+        )
 
         state = gamification.initialize_state(
             incoming_state,
@@ -238,16 +280,14 @@ class ExplainCellHandler(APIHandler):
         if not isinstance(cell, dict):
             raise web.HTTPError(400, reason="cell payload is required")
 
-        try:
-            payload = await asyncio.to_thread(
-                explain_cell_payload,
-                cell=cell,
-                analysis=analysis if isinstance(analysis, dict) else None,
-                start_path=_root_dir(self),
-                difficulty=_difficulty_from_body(body),
-            )
-        except Exception as exc:
-            raise web.HTTPError(500, reason=str(exc)) from exc
+        payload = await _run_llm(
+            self,
+            explain_cell_payload,
+            cell=cell,
+            analysis=analysis if isinstance(analysis, dict) else None,
+            start_path=_root_dir(self),
+            difficulty=_difficulty_from_body(body),
+        )
 
         source = str(cell.get("source") or "")
         cell_hash = (
@@ -279,15 +319,13 @@ class ReflectPromptHandler(APIHandler):
         if not isinstance(cell, dict):
             raise web.HTTPError(400, reason="cell payload is required")
 
-        try:
-            payload = await asyncio.to_thread(
-                reflect_prompt_payload,
-                cell=cell,
-                start_path=_root_dir(self),
-                difficulty=_difficulty_from_body(body),
-            )
-        except Exception as exc:
-            raise web.HTTPError(500, reason=str(exc)) from exc
+        payload = await _run_llm(
+            self,
+            reflect_prompt_payload,
+            cell=cell,
+            start_path=_root_dir(self),
+            difficulty=_difficulty_from_body(body),
+        )
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
@@ -320,15 +358,13 @@ class NextStepsHandler(APIHandler):
         if not isinstance(analysis, dict):
             raise web.HTTPError(400, reason="analysis payload is required")
 
-        try:
-            payload = await asyncio.to_thread(
-                next_steps_payload,
-                analysis=analysis,
-                start_path=_root_dir(self),
-                difficulty=_difficulty_from_body(body),
-            )
-        except Exception as exc:
-            raise web.HTTPError(500, reason=str(exc)) from exc
+        payload = await _run_llm(
+            self,
+            next_steps_payload,
+            analysis=analysis,
+            start_path=_root_dir(self),
+            difficulty=_difficulty_from_body(body),
+        )
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
@@ -346,7 +382,8 @@ class QuizGenerateHandler(APIHandler):
             raise web.HTTPError(400, reason="cells list is required")
 
         try:
-            payload = await asyncio.to_thread(
+            payload = await _run_llm(
+                self,
                 quiz_payload,
                 slot=slot,
                 cells=cells,
@@ -355,8 +392,6 @@ class QuizGenerateHandler(APIHandler):
             )
         except ValueError as exc:
             raise web.HTTPError(400, reason=str(exc)) from exc
-        except Exception as exc:
-            raise web.HTTPError(500, reason=str(exc)) from exc
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))

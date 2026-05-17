@@ -5,12 +5,30 @@ function buildUrl(path: string): string {
   return new URL(path.replace(/^\//, ''), settings.baseUrl).toString();
 }
 
-async function readError(response: Response): Promise<string> {
+async function readError(response: Response): Promise<{ message: string; kind: string }> {
   try {
-    const payload = (await response.json()) as { message?: string; reason?: string };
-    return payload.reason ?? payload.message ?? `Request failed with ${response.status}`;
+    const payload = (await response.json()) as {
+      message?: string;
+      reason?: string;
+      errorKind?: string;
+    };
+    const message =
+      payload.reason ?? payload.message ?? `Request failed with ${response.status}`;
+    const kind = payload.errorKind ?? 'http';
+    return { message, kind };
   } catch {
-    return `Request failed with ${response.status}`;
+    return { message: `Request failed with ${response.status}`, kind: 'http' };
+  }
+}
+
+export class FlowquestApiError extends Error {
+  readonly kind: string;
+  readonly status: number;
+
+  constructor(message: string, kind: string, status: number) {
+    super(message);
+    this.kind = kind;
+    this.status = status;
   }
 }
 
@@ -26,7 +44,8 @@ export async function apiRequest<T>(path: string, init: RequestInit): Promise<T>
     settings
   );
   if (!response.ok) {
-    throw new Error(await readError(response));
+    const { message, kind } = await readError(response);
+    throw new FlowquestApiError(message, kind, response.status);
   }
   return response.json() as Promise<T>;
 }

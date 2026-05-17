@@ -78,10 +78,18 @@ export class NotebookBanner {
 
     const health = state?.healthScore ?? 0;
     const target = state?.healthTarget ?? 100;
-    const progress = Math.max(
+    const progress = target > 0 ? Math.max(0, Math.min(100, Math.round((health / target) * 100))) : 0;
+    // 10 cells, each represents 10% of the target. Round so a value of 75 fills 8 cells.
+    const meterTotal = 10;
+    const meterFilled = Math.max(
       0,
-      Math.min(100, Math.round((state?.healthProgress ?? 0) * 100))
+      Math.min(meterTotal, Math.round(progress / (100 / meterTotal)))
     );
+    const meterCellsHtml = Array.from({ length: meterTotal }, (_, i) =>
+      i < meterFilled
+        ? `<span class="flowquest-bannerHealthCell is-filled${won ? ' is-win' : ''}"></span>`
+        : '<span class="flowquest-bannerHealthCell"></span>'
+    ).join('');
     const healthLabel = state?.healthLabel ?? '—';
     const healthClass = healthClassFor(health, won);
     const rank = state?.rankTitle ?? 'Notebook Novice';
@@ -143,12 +151,14 @@ export class NotebookBanner {
               won ? 'Complete 🏆' : healthLabel
             )}</span>
           </div>
-          <div class="flowquest-bannerHealthBar">
-            <div
-              class="flowquest-bannerHealthBarFill ${won ? 'is-win' : ''}"
-              style="width: ${progress}%"
-            ></div>
-            <span class="flowquest-bannerHealthBarMark" style="left: 100%">Goal</span>
+          <div
+            class="flowquest-bannerHealthMeter"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="${target}"
+            aria-valuenow="${health}"
+          >
+            ${meterCellsHtml}
           </div>
           <div class="flowquest-bannerHealthValue">
             <strong>${health}</strong><span> / ${target}</span>

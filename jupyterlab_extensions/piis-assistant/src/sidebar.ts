@@ -1,6 +1,7 @@
 import { Widget } from '@lumino/widgets';
 
 import { apiRequest, escapeHtml } from './api';
+import { toFriendlyError, inlineSpinnerHtml, thinkingHtml } from './uiFeedback';
 import type {
   AnalysisResponse,
   ClaimResponse,
@@ -423,7 +424,7 @@ export class AssistantSidebar extends Widget {
             <button type="button" class="flowquest-btn" data-action="next-steps" ${
               !analysis || this._loadingNextSteps ? 'disabled' : ''
             }>
-              ${this._loadingNextSteps ? 'Thinking…' : '✨ Ask FlowQuest'}
+              ${this._loadingNextSteps ? inlineSpinnerHtml('Thinking…') : '✨ Ask FlowQuest'}
             </button>
           </div>
           ${
@@ -613,10 +614,16 @@ export class AssistantSidebar extends Widget {
       .map(message => {
         const bubbleClass = message.role === 'user' ? 'is-user' : 'is-assistant';
         const label = message.role === 'user' ? 'You' : 'FlowQuest';
+        const isThinking =
+          message.role === 'assistant' &&
+          message.meta === 'Waiting for model response';
+        const bubbleContent = isThinking
+          ? thinkingHtml('Thinking…')
+          : escapeHtml(message.content);
         return `
           <article class="flowquest-message ${bubbleClass}">
             <div class="flowquest-messageLabel">${escapeHtml(label)}</div>
-            <div class="flowquest-bubble ${bubbleClass}">${escapeHtml(message.content)}</div>
+            <div class="flowquest-bubble ${bubbleClass}">${bubbleContent}</div>
             <div class="flowquest-messageMeta">${escapeHtml(message.meta)}</div>
           </article>
         `;
@@ -866,13 +873,14 @@ export class AssistantSidebar extends Widget {
       }
     } catch (error) {
       this._phase = 'error';
+      const friendly = toFriendlyError(error);
       this._messages.push({
         role: 'assistant',
-        content: error instanceof Error ? error.message : 'Unknown error',
-        meta: 'Request failed',
+        content: friendly.message,
+        meta: friendly.kind === 'timeout' ? 'Timed out · try again' : 'Request failed',
         includeInHistory: false
       });
-      this._meta = 'Check the root .env values and Jupyter server logs.';
+      this._meta = 'Open Settings to check the model endpoint, then retry.';
     }
 
     this.render();

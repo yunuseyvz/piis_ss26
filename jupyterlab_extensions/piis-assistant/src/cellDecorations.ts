@@ -19,6 +19,12 @@ import { NotebookPanel } from '@jupyterlab/notebook';
 import type { Cell } from '@jupyterlab/cells';
 
 import { apiRequest, clipText, escapeHtml } from './api';
+import {
+  errorBlockHtml,
+  inlineSpinnerHtml,
+  thinkingHtml,
+  toFriendlyError
+} from './uiFeedback';
 import type {
   AnalysisResponse,
   CellAnalysis,
@@ -67,6 +73,13 @@ interface CellEntry {
   reflectQuestion: string;
   reflectText: string;
   loading: Set<string>;
+  /** When the explain action errors out we keep the message so we can show
+   * a friendly inline error with a retry button. Cleared on the next attempt. */
+  explainError: { kind: string; message: string } | null;
+  /** Same idea for the reflect prompt fetch. */
+  reflectError: { kind: string; message: string } | null;
+  /** Per-mission claim error so we don't overwrite the explanation block. */
+  claimErrors: Map<string, string>;
 }
 
 export class CellDecorator {
@@ -152,7 +165,10 @@ export class CellDecorator {
       explanation: '',
       reflectQuestion: '',
       reflectText: '',
-      loading: new Set()
+      loading: new Set(),
+      explainError: null,
+      reflectError: null,
+      claimErrors: new Map()
     };
     this.entries.set(cell, entry);
 
@@ -222,8 +238,51 @@ export class CellDecorator {
     const missions = entry.missions;
     const loadingExplain = entry.loading.has('explain');
     const loadingReflect = entry.loading.has('reflect');
+    const loadingSubmit = entry.loading.has('submitReflect');
     const loadingMission = (id: string) => entry.loading.has(`claim-${id}`);
 
+    const region = analysis?.region ?? 'other';
+    const regionIcon = analysis?.regionIcon ?? '✨';
+
+    // ---- Facts pills -----------------------------------------------------
+    const facts: string[] = [];
+    if (analysis) {
+      if (analysis.execCount !== null) {
+        facts.push(`<span class="flowquest-fact">exec #${analysis.execCount}</span>`);
+      } else {
+        facts.push('<span class="flowquest-fact is-warn">not executed</span>');
+      }
+      if (analysis.defines.length) {
+        facts.push(
+          `<span class="flowquest-fact">defines ${escapeHtml(
+            analysis.defines.slice(0, 6).join(', ')
+          )}</span>`
+        );
+      }
+      if (analysis.uses.length) {
+        facts.push(
+          `<span class="flowquest-fact">uses ${escapeHtml(
+            analysis.uses.slice(0, 6).join(', ')
+          )}</span>`
+        );
+      }
+      if (analysis.dependsOn.length) {
+        facts.push(
+          `<span class="flowquest-fact">← cell${
+            analysis.dependsOn.length > 1 ? 's' : ''
+          } ${analysis.dependsOn.map(i => i + 1).join(', ')}</span>`
+        );
+      }
+      if (analysis.dependents.length) {
+        facts.push(
+          `<span class="flowquest-fact">→ cell${
+            analysis.dependents.length > 1 ? 's' : ''
+          } ${analysis.dependents.map(i => i + 1).join(', ')}</span>`
+        );
+      }
+    }
+
+    // ---- Issues ---------------------------------------------------------
     const issueHtml = issues
       .map(
         issue => `
@@ -240,12 +299,102 @@ export class CellDecorator {
       )
       .join('');
 
+    // ---- Explain card ---------------------------------------------------
+    const explainCard = (() => {
+      let body: string;
+      if (loadingExplain) {
+        body = renderThinking('Thinking about this cell…');
+      } else if (entry.explainError) {
+        body = renderInlineError(entry.explainError, 'retry-explain');
+      } else if (entry.explanation) {
+        body = `<div class="flowquest-block">${escapeHtml(entry.explanation)}</div>`;
+      } else {
+        body = `<div class="flowquest-cardHint">Get a short, contextual explanation grounded in the surrounding cells.</div>`;
+      }
+      return `
+        <section class="flowquest-cellSection">
+          <header class="flowquest-cellSectionHead">
+            <span class="flowquest-cellSectionIcon">🔍</span>
+            <span class="flowquest-cellSectionTitle">Explain this cell</span>
+            <span class="flowquest-cellSectionMeta">+2 health (first time per cell)</span>
+          </header>
+          ${body}
+          <div class="flowquest-actionsRow">
+            <button
+              type="button"
+              class="flowquest-btn flowquest-btn-primary"
+              data-action="explain"
+              ${loadingExplain ? 'disabled' : ''}
+            >${
+              loadingExplain
+                ? renderInlineSpinner('Thinking…')
+                : entry.explanation
+                  ? '↻ Re-explain'
+                  : '🔍 Explain'
+            }</button>
+          </div>
+        </section>
+      `;
+    })();
+
+    // ---- Reflect card ---------------------------------------------------
+    const reflectCard = (() => {
+      let body: string;
+      if (loadingReflect) {
+        body = renderThinking('Composing a reflective question…');
+      } else if (entry.reflectError) {
+        body = renderInlineError(entry.reflectError, 'retry-reflect');
+      } else if (entry.reflectQuestion) {
+        body = `
+          <div class="flowquest-block">${escapeHtml(entry.reflectQuestion)}</div>
+          <textarea
+            class="flowquest-textarea"
+            data-field="reflect"
+            placeholder="Write a sentence or two. +4 health on submit."
+          >${escapeHtml(entry.reflectText)}</textarea>
+          <div class="flowquest-actionsRow">
+            <button
+              type="button"
+              class="flowquest-btn flowquest-btn-primary"
+              data-action="submitReflect"
+              ${loadingSubmit || !entry.reflectText.trim() ? 'disabled' : ''}
+            >${
+              loadingSubmit ? renderInlineSpinner('Saving…') : 'Submit reflection'
+            }</button>
+          </div>
+        `;
+      } else {
+        body = `<div class="flowquest-cardHint">Get one short, pointed question about a design choice in this cell.</div>`;
+      }
+      return `
+        <section class="flowquest-cellSection">
+          <header class="flowquest-cellSectionHead">
+            <span class="flowquest-cellSectionIcon">🪞</span>
+            <span class="flowquest-cellSectionTitle">Reflect</span>
+            <span class="flowquest-cellSectionMeta">+4 health on first reflection</span>
+          </header>
+          ${body}
+          ${
+            !loadingReflect && !entry.reflectQuestion && !entry.reflectError
+              ? `
+                <div class="flowquest-actionsRow">
+                  <button type="button" class="flowquest-btn" data-action="reflect">🪞 Get a question</button>
+                </div>
+              `
+              : ''
+          }
+        </section>
+      `;
+    })();
+
+    // ---- Missions -------------------------------------------------------
     const missionHtml = missions
       .map(mission => {
         const state = this.callbacks.getState();
         const completed = (state.completedAwardKeys ?? []).includes(`mission:${mission.id}`);
         const loadingThis = loadingMission(mission.id);
         const points = mission.health_points || mission.xp;
+        const claimError = entry.claimErrors.get(mission.id);
         return `
           <li class="flowquest-missionCard flowquest-mission-${escapeHtml(mission.kind)} ${
             completed ? 'is-complete' : ''
@@ -258,6 +407,11 @@ export class CellDecorator {
             </div>
             <div class="flowquest-missionTitle">${escapeHtml(mission.title)}</div>
             <div class="flowquest-missionDesc">${escapeHtml(mission.description)}</div>
+            ${
+              claimError
+                ? `<div class="flowquest-inlineError flowquest-inlineError-compact">${escapeHtml(claimError)}</div>`
+                : ''
+            }
             <div class="flowquest-missionActions">
               <button
                 type="button"
@@ -268,7 +422,13 @@ export class CellDecorator {
                 data-points="${points}"
                 data-label="${escapeHtml(mission.title)}"
                 ${completed || loadingThis ? 'disabled' : ''}
-              >${completed ? 'Claimed' : loadingThis ? 'Claiming…' : `Claim +${points}`}</button>
+              >${
+                completed
+                  ? '✓ Claimed'
+                  : loadingThis
+                    ? renderInlineSpinner('Claiming…')
+                    : `Claim +${points}`
+              }</button>
             </div>
           </li>
         `;
@@ -276,110 +436,61 @@ export class CellDecorator {
       .join('');
 
     entry.panel.innerHTML = `
-      <div class="flowquest-cellPanelInner">
-        <div class="flowquest-sectionRow">
-          <div class="flowquest-sectionTitle">Cell ${entry.cellIndex + 1} · ${escapeHtml(
-            analysis?.region ?? 'other'
-          )} ${escapeHtml(analysis?.regionIcon ?? '✨')}</div>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">Close</button>
-        </div>
+      <div class="flowquest-cellPanelInner flowquest-cellPanel-region-${escapeHtml(region)}">
+        <header class="flowquest-cellPanelHead">
+          <div class="flowquest-cellPanelHeadLeft">
+            <span class="flowquest-cellPanelBadge">Cell ${entry.cellIndex + 1}</span>
+            <span class="flowquest-cellPanelRegion">
+              <span class="flowquest-cellPanelRegionIcon">${escapeHtml(regionIcon)}</span>
+              <span class="flowquest-cellPanelRegionLabel">${escapeHtml(region)}</span>
+            </span>
+          </div>
+          <div class="flowquest-cellPanelHeadRight">
+            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="openSidebar">
+              Open FlowQuest →
+            </button>
+            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close" title="Close">✕</button>
+          </div>
+        </header>
 
         ${
           analysis
-            ? `
-              <div class="flowquest-factRow">
-                ${
-                  analysis.defines.length
-                    ? `<span class="flowquest-fact">defines ${escapeHtml(
-                        analysis.defines.slice(0, 6).join(', ')
-                      )}</span>`
-                    : ''
-                }
-                ${
-                  analysis.uses.length
-                    ? `<span class="flowquest-fact">uses ${escapeHtml(
-                        analysis.uses.slice(0, 6).join(', ')
-                      )}</span>`
-                    : ''
-                }
-                ${
-                  analysis.dependsOn.length
-                    ? `<span class="flowquest-fact">depends on cell${
-                        analysis.dependsOn.length > 1 ? 's' : ''
-                      } ${analysis.dependsOn.map(i => i + 1).join(', ')}</span>`
-                    : ''
-                }
-                ${
-                  analysis.dependents.length
-                    ? `<span class="flowquest-fact">feeds cell${
-                        analysis.dependents.length > 1 ? 's' : ''
-                      } ${analysis.dependents.map(i => i + 1).join(', ')}</span>`
-                    : ''
-                }
-                ${
-                  analysis.execCount !== null
-                    ? `<span class="flowquest-fact">exec #${analysis.execCount}</span>`
-                    : `<span class="flowquest-fact is-warn">not executed</span>`
-                }
-              </div>
-            `
+            ? `<div class="flowquest-factRow">${facts.join('')}</div>`
             : '<div class="flowquest-dim">FlowQuest analysis is still loading for this cell.</div>'
         }
 
         ${
           issues.length
-            ? `<ul class="flowquest-issueList">${issueHtml}</ul>`
-            : '<div class="flowquest-dim">✨ No issues detected in this cell.</div>'
-        }
-
-        <div class="flowquest-actionsRow">
-          <button
-            type="button"
-            class="flowquest-btn flowquest-btn-primary"
-            data-action="explain"
-            ${loadingExplain ? 'disabled' : ''}
-          >${loadingExplain ? 'Explaining…' : '🔍 Explain this cell'}</button>
-          <button
-            type="button"
-            class="flowquest-btn"
-            data-action="reflect"
-            ${loadingReflect ? 'disabled' : ''}
-          >${loadingReflect ? 'Thinking…' : '🪞 Reflect'}</button>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="openSidebar">
-            Open FlowQuest →
-          </button>
-        </div>
-
-        ${
-          entry.explanation
             ? `
-              <div class="flowquest-blockTitle">Explanation</div>
-              <div class="flowquest-block">${escapeHtml(entry.explanation)}</div>
+              <section class="flowquest-cellSection">
+                <header class="flowquest-cellSectionHead">
+                  <span class="flowquest-cellSectionIcon">🩺</span>
+                  <span class="flowquest-cellSectionTitle">Issues</span>
+                  <span class="flowquest-cellSectionMeta">${issues.length}</span>
+                </header>
+                <ul class="flowquest-issueList">${issueHtml}</ul>
+              </section>
             `
             : ''
         }
 
+        ${explainCard}
+        ${reflectCard}
+
         ${
-          entry.reflectQuestion
+          missions.length
             ? `
-              <div class="flowquest-blockTitle">Reflect</div>
-              <div class="flowquest-block">${escapeHtml(entry.reflectQuestion)}</div>
-              <textarea
-                class="flowquest-textarea"
-                data-field="reflect"
-                placeholder="Your answer. Even one sentence counts — +10 Reflection XP when submitted.">${escapeHtml(
-                  entry.reflectText
-                )}</textarea>
-              <div class="flowquest-actionsRow">
-                <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="submitReflect">
-                  Submit Reflection
-                </button>
-              </div>
+              <section class="flowquest-cellSection">
+                <header class="flowquest-cellSectionHead">
+                  <span class="flowquest-cellSectionIcon">⭐</span>
+                  <span class="flowquest-cellSectionTitle">Missions</span>
+                  <span class="flowquest-cellSectionMeta">${missions.length}</span>
+                </header>
+                <ul class="flowquest-missionList">${missionHtml}</ul>
+              </section>
             `
             : ''
         }
-
-        ${missions.length ? `<ul class="flowquest-missionList">${missionHtml}</ul>` : ''}
       </div>
     `;
 
@@ -387,6 +498,14 @@ export class CellDecorator {
     if (textarea) {
       textarea.addEventListener('input', event => {
         entry.reflectText = (event.currentTarget as HTMLTextAreaElement).value;
+        // Re-render to enable/disable the submit button based on text.
+        // We avoid a full panel rerender (which would steal focus); just toggle.
+        const submitBtn = entry.panel.querySelector<HTMLButtonElement>(
+          'button[data-action="submitReflect"]'
+        );
+        if (submitBtn) {
+          submitBtn.disabled = entry.reflectText.trim().length === 0;
+        }
       });
     }
 
@@ -419,23 +538,36 @@ export class CellDecorator {
       await this.submitReflect(entry);
       return;
     }
-        if (action === 'claim') {
-          const missionId = button.dataset.mission ?? '';
-          const criterionId = button.dataset.criterion ?? 'workflow_clarity';
-          const points = Number(button.dataset.points ?? '0');
-          const label = button.dataset.label ?? missionId;
-          await this.claim(entry, missionId, criterionId, points, label);
-        }
+    if (action === 'claim') {
+      const missionId = button.dataset.mission ?? '';
+      const criterionId = button.dataset.criterion ?? 'workflow_clarity';
+      const points = Number(button.dataset.points ?? '0');
+      const label = button.dataset.label ?? missionId;
+      await this.claim(entry, missionId, criterionId, points, label);
+      return;
+    }
+    if (action === 'retry-explain') {
+      entry.explainError = null;
+      await this.runExplain(entry);
+      return;
+    }
+    if (action === 'retry-reflect') {
+      entry.reflectError = null;
+      await this.runReflect(entry);
+      return;
+    }
   }
 
   private async runExplain(entry: CellEntry): Promise<void> {
     const source = entry.cell.model.sharedModel.getSource();
     if (!source.trim()) {
       entry.explanation = 'This cell is empty. Add code or text first.';
+      entry.explainError = null;
       this.renderPanel(entry);
       return;
     }
     entry.loading.add('explain');
+    entry.explainError = null;
     this.renderPanel(entry);
     try {
       const response = await apiRequest<ExplainResponse>('piis-assistant/explain-cell', {
@@ -458,7 +590,7 @@ export class CellDecorator {
         this.callbacks.applyState(response.state);
       }
     } catch (error) {
-      entry.explanation = `Could not explain: ${(error as Error).message}`;
+      entry.explainError = toFriendlyError(error);
     } finally {
       entry.loading.delete('explain');
       this.renderPanel(entry);
@@ -468,6 +600,7 @@ export class CellDecorator {
   private async runReflect(entry: CellEntry): Promise<void> {
     const source = entry.cell.model.sharedModel.getSource();
     entry.loading.add('reflect');
+    entry.reflectError = null;
     this.renderPanel(entry);
     try {
       const response = await apiRequest<ReflectPromptResponse>('piis-assistant/reflect/prompt', {
@@ -482,7 +615,7 @@ export class CellDecorator {
       });
       entry.reflectQuestion = response.question || 'What could go wrong with this cell?';
     } catch (error) {
-      entry.reflectQuestion = `Could not load reflection: ${(error as Error).message}`;
+      entry.reflectError = toFriendlyError(error);
     } finally {
       entry.loading.delete('reflect');
       this.renderPanel(entry);
@@ -494,6 +627,8 @@ export class CellDecorator {
     if (!text) {
       return;
     }
+    entry.loading.add('submitReflect');
+    this.renderPanel(entry);
     try {
       const response = await apiRequest<ClaimResponse>('piis-assistant/reflect/answer', {
         method: 'POST',
@@ -512,10 +647,11 @@ export class CellDecorator {
       }
       this.callbacks.applyState(response.state);
       entry.reflectText = '';
-      entry.reflectQuestion = `Reflection saved. ${entry.reflectQuestion}`;
+      entry.reflectQuestion = `Reflection saved · ${entry.reflectQuestion}`;
     } catch (error) {
-      entry.reflectQuestion = `Could not save reflection: ${(error as Error).message}`;
+      entry.reflectError = toFriendlyError(error);
     } finally {
+      entry.loading.delete('submitReflect');
       this.renderPanel(entry);
     }
   }
@@ -528,6 +664,7 @@ export class CellDecorator {
     label: string
   ): Promise<void> {
     entry.loading.add(`claim-${missionId}`);
+    entry.claimErrors.delete(missionId);
     this.renderPanel(entry);
     try {
       const response = await apiRequest<ClaimResponse>('piis-assistant/mission/claim', {
@@ -549,8 +686,8 @@ export class CellDecorator {
       }
       this.callbacks.applyState(response.state);
     } catch (error) {
-      // Best-effort: surface the error in the explanation block.
-      entry.explanation = `Could not claim: ${(error as Error).message}`;
+      const friendly = toFriendlyError(error);
+      entry.claimErrors.set(missionId, friendly.message);
     } finally {
       entry.loading.delete(`claim-${missionId}`);
       this.renderPanel(entry);
@@ -558,4 +695,18 @@ export class CellDecorator {
   }
 
   private entries = new Map<Cell, CellEntry>();
+}
+
+// ---------------------------------------------------------------------------
+// Render helpers (HTML strings)
+// ---------------------------------------------------------------------------
+
+const renderInlineSpinner = inlineSpinnerHtml;
+const renderThinking = thinkingHtml;
+
+function renderInlineError(
+  err: { kind: string; message: string },
+  retryAction: string
+): string {
+  return errorBlockHtml(err, { retryAction, retryLabel: 'Retry' });
 }
