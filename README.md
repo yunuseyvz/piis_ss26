@@ -1,110 +1,90 @@
-# PIIS AI-Enhanced Notebook Demo
+# FlowQuest
 
-This repository contains a small `uv`-managed Python project for the course **Practical Intelligent Interactive Systems for Software Developers**.
+A gamified, context-aware companion for JupyterLab. FlowQuest analyses your notebook, gives it a health score, and turns the journey from messy draft to clean artifact into a quest with missions, quizzes, and per-cell hints.
 
-The main artifact is a mock Jupyter notebook that acts as a realistic computational essay for exploring **AI-enhanced literate programming** ideas. It uses a synthetic SaaS customer-health dataset, combines narrative and code, and includes multiple visualizations plus a lightweight predictive modeling section.
+This repository contains:
 
-## What Is In This Repo
+- `jupyterlab_extensions/piis-assistant/` — the FlowQuest JupyterLab extension (TypeScript frontend + Python server backend).
+- `examples/` — three short example notebooks designed to exercise the extension.
+- `deploy/` and the root `Dockerfile` / `docker-compose.yml` — a self-contained deployment image suitable for Coolify, Render, fly.io, or plain Docker.
+- `docs/` — architecture and deployment documentation.
 
-- `notebooks/ai_enhanced_literate_programming_demo.ipynb`: the example notebook used as a baseline for later AI experiments.
-- `pyproject.toml`: the `uv` project configuration and Python dependencies.
-- `ideas.md`: a collection of course ideas for enhancing notebook-style literate programming with AI and LLM systems.
-- `jupyterlab_extensions/piis-assistant`: a minimal JupyterLab extension that adds a live AI assistant sidebar.
+> **Course context.** Built for the course **Practical Intelligent Interactive Systems for Software Developers**. The goal is to explore how an AI assistant can support notebook authoring without becoming a generic chatbot.
 
-## What The Notebook Covers
+## Quickstart (local)
 
-The notebook is intentionally rich enough to support later experimentation. It includes:
-
-- synthetic dataset generation
-- exploratory analysis
-- feature engineering
-- multiple static and interactive visualizations
-- a compact modeling section with baseline churn prediction
-
-This gives you a practical artifact for trying ideas such as narrative-code drift detection, provenance summaries, critique agents, or reader-adaptive explanations.
-
-## Prerequisites
-
-- Python 3.12+
-- `uv` installed locally
-
-If `uv` is not installed yet, see: <https://docs.astral.sh/uv/>
-
-## Run With uv
-
-From the repository root:
+Requirements: Python 3.12+, Node 20+, and [`uv`](https://docs.astral.sh/uv/) for environment management.
 
 ```bash
+# 1. Project deps + JupyterLab
 uv sync
+
+# 2. Build and install the FlowQuest extension into the venv
+bash scripts/setup.sh
+
+# 3. Open the example notebooks
+uv run jupyter lab examples
 ```
 
-This creates `.venv` and installs the dependencies from `pyproject.toml`.
+> Re-run `bash scripts/setup.sh` any time you call `uv sync` or change extension code. `uv sync` only manages declared dependencies, so it can't reinstall the locally built extension on its own.
 
-To start JupyterLab with the project environment:
+You can sanity-check the install with:
 
 ```bash
-uv run jupyter lab
+uv run jupyter labextension list | grep piis
+# jupyterlab-piis-assistant v0.1.0 enabled OK (python, jupyterlab-piis-assistant)
 ```
 
-Then open:
+Once JupyterLab is open:
 
-- `notebooks/ai_enhanced_literate_programming_demo.ipynb`
+1. Click the 🗺️ FlowQuest tab in the left sidebar (or the ⚙️ icon in any notebook's banner).
+2. Open the **Settings → Global** tab and enter your model, base URL, and API key. They're saved under `~/.flowquest/settings.json`.
+3. Open `examples/03_messy_on_purpose.ipynb` and press **🚀 Initialize FlowQuest** in the in-notebook banner. Mission cards appear in the sidebar; quiz cells appear below the data-loading region.
 
-## JupyterLab Assistant Extension
+A `.env.example` is included if you'd rather configure the LLM endpoint that way; it's read as a fallback.
 
-The repo now includes a minimal JupyterLab extension that adds a simple assistant sidebar.
+## What FlowQuest does
 
-The sidebar sends prompts to a server-side Jupyter route, which reads the repository root `.env` file and expects:
+| Surface | What it shows |
+| --- | --- |
+| **In-notebook banner** | Notebook Health bar, level, mission count, region distribution, difficulty selector, settings shortcut. |
+| **Per-cell chip** | Region label (load / clean / model / …), health dot, mission star, expand button. |
+| **Inline cell panel** | Issues, dependencies, Explain / Reflect buttons, mission claims for that cell. |
+| **Virtual quiz cells** | Auto-generated multiple-choice questions inserted between real cells, anchored to a stable cell id. |
+| **Sidebar** | Three tabs: Quest (health, missions, criteria), Workflow (region map, cell list, issue feed), Chat (notebook-aware LLM chat). |
+| **Settings modal** | Global model + API key, per-notebook difficulty, "wipe data" button. |
 
-- `HF_OPENAI_BASE_URL`
-- `HF_OPENAI_MODEL`
-- `HF_OPENAI_API_KEY`
+The whole quest state lives inside `metadata.flowquest` in the `.ipynb` itself, so progress travels with the file.
 
-From the repository root:
+## Documentation map
 
-```bash
-uv sync
-cd jupyterlab_extensions/piis-assistant
-npm install
-npm run build
-uv pip install --python ../../.venv/bin/python .
-cd ../..
-uv run jupyter lab
+- [`docs/architecture.md`](docs/architecture.md) — how the pieces fit together; module-by-module map.
+- [`docs/extension.md`](docs/extension.md) — what the extension exposes, the API surface, the persistence model.
+- [`docs/deployment.md`](docs/deployment.md) — deploy a public, token-less FlowQuest server with Coolify or plain Docker.
+- [`examples/README.md`](examples/README.md) — what each example notebook is meant to show.
+
+## Repository layout
+
+```
+.
+├── Dockerfile                    Production image (multi-stage build)
+├── docker-compose.yml            Coolify-friendly compose definition
+├── deploy/                       Runtime config + entrypoint + python deps
+├── docs/                         Markdown documentation (start here)
+├── examples/                     Three small notebooks exercising FlowQuest
+├── jupyterlab_extensions/
+│   └── piis-assistant/           The FlowQuest JupyterLab extension
+│       ├── jupyterlab_piis_assistant/   Python server backend
+│       ├── src/                  TypeScript frontend
+│       ├── style/                CSS (sharp-edged, JupyterLab-themed)
+│       ├── package.json          Frontend build
+│       └── setup.py              Python packaging
+├── scripts/
+│   └── build_examples.py         Regenerates the example notebooks
+├── pyproject.toml                Workspace deps (managed with uv)
+└── README.md                     This file
 ```
 
-After JupyterLab opens in the browser:
+## License
 
-- the `Assistant` sidebar should appear on the left automatically
-- you can also use the command palette entry `PIIS: Focus Assistant Sidebar`
-- type a prompt, send it, and the reply will appear in the sidebar
-
-More extension details live in `jupyterlab_extensions/piis-assistant/README.md`.
-
-## VS Code Note
-
-This is a JupyterLab extension, so it works in browser-based JupyterLab and does **not** render inside the VS Code notebook editor.
-
-## Optional Commands
-
-Execute the notebook from the command line to verify it runs end to end:
-
-```bash
-uv run jupyter nbconvert --to notebook --execute notebooks/ai_enhanced_literate_programming_demo.ipynb --output executed.ipynb
-```
-
-If you want to work inside the environment directly:
-
-```bash
-source .venv/bin/activate
-```
-
-## Intended Use
-
-This repo is a starting point for course work on questions such as:
-
-- how AI systems can support notebook authoring and reading
-- how to keep notebook prose and code aligned over time
-- how to make notebook reasoning more reproducible and inspectable
-- how to move from a single assistant toward mixed-initiative or multi-agent notebook workflows
-
-See `ideas.md` for the broader concept list.
+Course project. No license declared yet — treat as "all rights reserved" until that changes.

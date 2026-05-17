@@ -1,0 +1,34 @@
+# Keep the build context small.
+
+.venv/
+.git/
+.gitignore
+.env
+.python-version
+
+# Python caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+
+# Node caches and build artifacts. We intentionally rebuild in Docker.
+**/node_modules/
+jupyterlab_extensions/piis-assistant/lib/
+jupyterlab_extensions/piis-assistant/build/
+jupyterlab_extensions/piis-assistant/jupyterlab_piis_assistant/labextension/
+jupyterlab_extensions/piis-assistant/jupyterlab_piis_assistant.egg-info/
+jupyterlab_extensions/piis-assistant/tsconfig.tsbuildinfo
+
+# Runtime/user data we never want in an image.
+**/.ipynb_checkpoints/
+.flowquest/
+prototypes/**/__pycache__/
+
+# Editor and OS junk
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

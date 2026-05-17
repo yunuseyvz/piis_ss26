@@ -1,17 +1,18 @@
 [project]
-name = "piis-ai-notebook-demo"
+name = "flowquest-workspace"
 version = "0.1.0"
-description = "Example notebook project for exploring AI-enhanced literate programming ideas."
+description = "Workspace for FlowQuest — a gamified JupyterLab companion."
 requires-python = ">=3.12"
 dependencies = [
+    # JupyterLab + the FlowQuest extension's runtime deps
     "ipykernel>=6.29.5",
-    "jupyterlab>=4.4.2",
+    "jupyterlab>=4.5.0,<5",
+    "openai>=1.78.1",
+    "python-dotenv>=1.1.0",
+    # Notebook stack used by the example notebooks under examples/
     "matplotlib>=3.10.3",
     "numpy>=2.2.5",
-    "openai>=1.78.1",
     "pandas>=2.2.3",
-    "plotly>=6.0.1",
-    "python-dotenv>=1.1.0",
     "scikit-learn>=1.6.1",
     "seaborn>=0.13.2",
 ]

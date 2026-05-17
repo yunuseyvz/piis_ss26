@@ -1,0 +1,391 @@
+/**
+ * FlowQuest settings panel.
+ *
+ * Modal-style overlay opened from the sidebar header or the in-notebook
+ * banner. Two tabs:
+ *
+ *   1. Global — model picker, base URL, API key. Persisted server-side
+ *      under ~/.flowquest/settings.json by the SettingsSaveHandler.
+ *   2. Notebook — difficulty selector and a destructive "wipe data" button.
+ *      These mutations go through the existing per-notebook state pipeline
+ *      and end up in metadata.flowquest as usual.
+ */
+
+import { apiRequest, escapeHtml } from './api';
+import type { DifficultyLevel, GlobalSettings, QuestState } from './types';
+
+const HOST_CLASS = 'flowquest-settingsHost';
+
+export interface SettingsPanelCallbacks {
+  getState: () => QuestState;
+  applyState: (state: QuestState) => void;
+  flashToast: (message: string) => void;
+}
+
+const DIFFICULTY_OPTIONS: Array<{
+  value: DifficultyLevel;
+  label: string;
+  blurb: string;
+  icon: string;
+}> = [
+  {
+    value: 'easy',
+    label: 'Easy',
+    blurb: 'Beginner-friendly explanations, gentle quizzes, generous baseline.',
+    icon: '🌱'
+  },
+  {
+    value: 'medium',
+    label: 'Medium',
+    blurb: 'Practitioner-level depth and balanced grading.',
+    icon: '🧗'
+  },
+  {
+    value: 'hard',
+    label: 'Hard',
+    blurb: 'Senior-reviewer mode. Strict baseline, sharp quizzes.',
+    icon: '🔥'
+  }
+];
+
+export class SettingsPanel {
+  private host: HTMLElement | null = null;
+  private isOpen = false;
+  private tab: 'global' | 'notebook' = 'global';
+  private settings: GlobalSettings | null = null;
+  private formModel = '';
+  private formBaseUrl = '';
+  private formApiKey = '';
+  private loading = false;
+  private saving = false;
+  private wipeConfirm = false;
+
+  constructor(private callbacks: SettingsPanelCallbacks) {}
+
+  isVisible(): boolean {
+    return this.isOpen;
+  }
+
+  open(tab: 'global' | 'notebook' = 'global'): void {
+    this.tab = tab;
+    if (this.isOpen) {
+      this.render();
+      return;
+    }
+    this.isOpen = true;
+    this.host = document.createElement('div');
+    this.host.className = HOST_CLASS;
+    document.body.appendChild(this.host);
+    this.render();
+    void this.loadSettings();
+  }
+
+  close(): void {
+    this.isOpen = false;
+    this.wipeConfirm = false;
+    this.host?.remove();
+    this.host = null;
+  }
+
+  private async loadSettings(): Promise<void> {
+    this.loading = true;
+    this.render();
+    try {
+      const response = await apiRequest<GlobalSettings>('piis-assistant/settings', {
+        method: 'GET'
+      });
+      this.settings = response;
+      this.formModel = response.model;
+      this.formBaseUrl = response.baseUrl;
+      this.formApiKey = '';
+    } catch (error) {
+      this.callbacks.flashToast(`Could not load settings: ${(error as Error).message}`);
+    } finally {
+      this.loading = false;
+      this.render();
+    }
+  }
+
+  private async save(): Promise<void> {
+    if (!this.host) return;
+    this.saving = true;
+    this.render();
+    try {
+      const payload: Record<string, unknown> = {
+        model: this.formModel,
+        baseUrl: this.formBaseUrl
+      };
+      if (this.formApiKey.trim()) {
+        payload.apiKey = this.formApiKey.trim();
+      }
+      const response = await apiRequest<GlobalSettings>('piis-assistant/settings/save', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      this.settings = response;
+      this.formModel = response.model;
+      this.formBaseUrl = response.baseUrl;
+      this.formApiKey = '';
+      this.callbacks.flashToast('Settings saved.');
+    } catch (error) {
+      this.callbacks.flashToast(`Save failed: ${(error as Error).message}`);
+    } finally {
+      this.saving = false;
+      this.render();
+    }
+  }
+
+  private async setDifficulty(level: DifficultyLevel): Promise<void> {
+    try {
+      const response = await apiRequest<{ state: QuestState }>(
+        'piis-assistant/state/difficulty',
+        {
+          method: 'POST',
+          body: JSON.stringify({ state: this.callbacks.getState(), difficulty: level })
+        }
+      );
+      this.callbacks.applyState(response.state);
+      this.callbacks.flashToast(`Difficulty set to ${level}.`);
+    } catch (error) {
+      this.callbacks.flashToast(`Could not change difficulty: ${(error as Error).message}`);
+    }
+    this.render();
+  }
+
+  private async wipe(): Promise<void> {
+    try {
+      const response = await apiRequest<{ state: QuestState }>('piis-assistant/state/wipe', {
+        method: 'POST',
+        body: JSON.stringify({ state: this.callbacks.getState(), keepDifficulty: true })
+      });
+      this.callbacks.applyState(response.state);
+      this.callbacks.flashToast('Notebook FlowQuest data wiped.');
+      this.wipeConfirm = false;
+    } catch (error) {
+      this.callbacks.flashToast(`Wipe failed: ${(error as Error).message}`);
+    }
+    this.render();
+  }
+
+  private render(): void {
+    if (!this.host) return;
+
+    this.host.innerHTML = `
+      <div class="flowquest-settingsBackdrop" data-action="close"></div>
+      <div class="flowquest-settingsModal flowquest" role="dialog" aria-modal="true">
+        <header class="flowquest-settingsHeader">
+          <div class="flowquest-settingsHeading">
+            <span class="flowquest-settingsIcon">⚙️</span>
+            <div>
+              <div class="flowquest-cardTitle">FlowQuest Settings</div>
+              <div class="flowquest-dim">Global model + per-notebook quest options.</div>
+            </div>
+          </div>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">✕ Close</button>
+        </header>
+
+        <nav class="flowquest-settingsTabs" role="tablist">
+          <button type="button" role="tab" aria-selected="${this.tab === 'global'}"
+            class="flowquest-settingsTab ${this.tab === 'global' ? 'is-active' : ''}"
+            data-action="tab" data-tab="global">🌐 Global</button>
+          <button type="button" role="tab" aria-selected="${this.tab === 'notebook'}"
+            class="flowquest-settingsTab ${this.tab === 'notebook' ? 'is-active' : ''}"
+            data-action="tab" data-tab="notebook">📓 This notebook</button>
+        </nav>
+
+        <div class="flowquest-settingsBody">
+          ${this.tab === 'global' ? this.renderGlobalTab() : this.renderNotebookTab()}
+        </div>
+      </div>
+    `;
+
+    this.host.querySelectorAll<HTMLElement>('[data-action]').forEach(element => {
+      element.onclick = event => {
+        event.stopPropagation();
+        const action = element.dataset.action;
+        if (action === 'close') {
+          this.close();
+          return;
+        }
+        if (action === 'tab') {
+          const next = (element.dataset.tab as 'global' | 'notebook') ?? this.tab;
+          this.tab = next;
+          this.wipeConfirm = false;
+          this.render();
+          return;
+        }
+        if (action === 'save') {
+          void this.save();
+          return;
+        }
+        if (action === 'difficulty') {
+          const level = element.dataset.level as DifficultyLevel;
+          if (level) void this.setDifficulty(level);
+          return;
+        }
+        if (action === 'wipe-confirm') {
+          this.wipeConfirm = true;
+          this.render();
+          return;
+        }
+        if (action === 'wipe-cancel') {
+          this.wipeConfirm = false;
+          this.render();
+          return;
+        }
+        if (action === 'wipe-apply') {
+          void this.wipe();
+        }
+      };
+    });
+
+    const modelInput = this.host.querySelector<HTMLInputElement>('input[data-field="model"]');
+    if (modelInput) {
+      modelInput.oninput = event => {
+        this.formModel = (event.currentTarget as HTMLInputElement).value;
+      };
+    }
+    const baseUrlInput = this.host.querySelector<HTMLInputElement>('input[data-field="baseUrl"]');
+    if (baseUrlInput) {
+      baseUrlInput.oninput = event => {
+        this.formBaseUrl = (event.currentTarget as HTMLInputElement).value;
+      };
+    }
+    const apiKeyInput = this.host.querySelector<HTMLInputElement>('input[data-field="apiKey"]');
+    if (apiKeyInput) {
+      apiKeyInput.oninput = event => {
+        this.formApiKey = (event.currentTarget as HTMLInputElement).value;
+      };
+    }
+
+    // Favorite-model chips
+    this.host.querySelectorAll<HTMLElement>('[data-favorite]').forEach(element => {
+      element.onclick = event => {
+        event.stopPropagation();
+        const value = element.dataset.favorite;
+        if (value) {
+          this.formModel = value;
+          this.render();
+        }
+      };
+    });
+  }
+
+  private renderGlobalTab(): string {
+    if (this.loading && !this.settings) {
+      return '<div class="flowquest-dim">Loading settings…</div>';
+    }
+    const settings = this.settings;
+    const apiKeyHint = settings?.apiKeySet
+      ? `Currently set (${escapeHtml(settings.apiKeyPreview || 'hidden')}). Leave blank to keep it; type a new value to replace.`
+      : 'No key on file yet. Paste one below to enable LLM features.';
+    const favorites = settings?.favoriteModels ?? [];
+    const fileLine = settings?.settingsFile
+      ? `Stored in ${escapeHtml(settings.settingsFile)}`
+      : settings?.envFile
+        ? `Reading from ${escapeHtml(settings.envFile)} (saving here will move the values to ~/.flowquest/settings.json).`
+        : 'No settings file yet — saving will create one.';
+
+    return `
+      <section class="flowquest-settingsSection">
+        <div class="flowquest-eyebrow">Endpoint</div>
+        <p class="flowquest-dim">These apply to every notebook FlowQuest opens on this server.</p>
+
+        <label class="flowquest-formLabel" for="fq-model">Model</label>
+        <input id="fq-model" class="flowquest-formInput" type="text" data-field="model"
+          placeholder="meta-llama/Llama-3.1-8B-Instruct"
+          value="${escapeHtml(this.formModel)}" />
+        ${
+          favorites.length
+            ? `<div class="flowquest-formChips">${favorites
+                .map(
+                  (m: string) =>
+                    `<button type="button" class="flowquest-chipMini" data-favorite="${escapeHtml(
+                      m
+                    )}">${escapeHtml(m)}</button>`
+                )
+                .join('')}</div>`
+            : ''
+        }
+
+        <label class="flowquest-formLabel" for="fq-base-url">Base URL</label>
+        <input id="fq-base-url" class="flowquest-formInput" type="text" data-field="baseUrl"
+          placeholder="https://router.huggingface.co/v1"
+          value="${escapeHtml(this.formBaseUrl)}" />
+
+        <label class="flowquest-formLabel" for="fq-api-key">API key</label>
+        <input id="fq-api-key" class="flowquest-formInput" type="password" data-field="apiKey"
+          placeholder="hf_..."
+          value="${escapeHtml(this.formApiKey)}" />
+        <div class="flowquest-dim">${apiKeyHint}</div>
+
+        <div class="flowquest-actionsRow">
+          <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="save"
+            ${this.saving ? 'disabled' : ''}>${this.saving ? 'Saving…' : 'Save settings'}</button>
+        </div>
+        <div class="flowquest-dim">${fileLine}</div>
+      </section>
+    `;
+  }
+
+  private renderNotebookTab(): string {
+    const state = this.callbacks.getState();
+    const currentDifficulty = state?.difficulty ?? 'medium';
+    const initialized = Boolean(state?.initialized);
+    const points = state?.pointsEarned ?? 0;
+    const reflections = state?.reflections?.length ?? 0;
+
+    const difficultyHtml = DIFFICULTY_OPTIONS.map(option => {
+      const active = option.value === currentDifficulty;
+      return `
+        <button type="button"
+          class="flowquest-difficulty ${active ? 'is-active' : ''}"
+          data-action="difficulty"
+          data-level="${escapeHtml(option.value)}"
+        >
+          <span class="flowquest-difficultyIcon">${escapeHtml(option.icon)}</span>
+          <span class="flowquest-difficultyLabel">${escapeHtml(option.label)}</span>
+          <span class="flowquest-difficultyBlurb">${escapeHtml(option.blurb)}</span>
+        </button>
+      `;
+    }).join('');
+
+    return `
+      <section class="flowquest-settingsSection">
+        <div class="flowquest-eyebrow">Difficulty</div>
+        <p class="flowquest-dim">
+          Affects every LLM call for this notebook: explanations, quiz wording,
+          reflective questions, and how strict the baseline scoring is.
+        </p>
+        <div class="flowquest-difficultyGrid">${difficultyHtml}</div>
+      </section>
+
+      <section class="flowquest-settingsSection flowquest-settingsDanger">
+        <div class="flowquest-eyebrow">Danger zone</div>
+        <p class="flowquest-dim">
+          Wipe FlowQuest progress for this notebook only. Removes baseline,
+          claimed missions, reflections, and quiz answers. The notebook code
+          and markdown are untouched. Difficulty is preserved.
+        </p>
+        <div class="flowquest-statRow">
+          <span class="flowquest-pill flowquest-pill-muted">${initialized ? 'Initialized' : 'Not initialized'}</span>
+          <span class="flowquest-pill flowquest-pill-muted">${points} pts earned</span>
+          <span class="flowquest-pill flowquest-pill-muted">${reflections} reflections</span>
+        </div>
+        ${
+          this.wipeConfirm
+            ? `
+              <div class="flowquest-confirmRow">
+                <span>Wipe all FlowQuest data for this notebook?</span>
+                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-apply">Yes, wipe</button>
+                <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="wipe-cancel">Cancel</button>
+              </div>
+            `
+            : `<div class="flowquest-actionsRow">
+                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-confirm">🧹 Wipe FlowQuest data</button>
+              </div>`
+        }
+      </section>
+    `;
+  }
+}

@@ -1,0 +1,53 @@
+# Coolify auto-detects this compose file. Locally run with:
+#   docker compose up --build
+
+services:
+  flowquest:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UID: "1000"
+        GID: "1000"
+    image: flowquest:latest
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      # ------------------------------------------------------------------
+      # FlowQuest LLM endpoint — set as Coolify secrets in production.
+      # Users can override these from FlowQuest -> Settings -> Global,
+      # which writes ~/.flowquest/settings.json inside the container.
+      # ------------------------------------------------------------------
+      HF_OPENAI_BASE_URL: "${HF_OPENAI_BASE_URL:-}"
+      HF_OPENAI_MODEL: "${HF_OPENAI_MODEL:-}"
+      HF_OPENAI_API_KEY: "${HF_OPENAI_API_KEY:-}"
+
+      # ------------------------------------------------------------------
+      # Auth. Pick exactly one of these:
+      #
+      #   JUPYTER_PUBLIC=1            -> open server, no token (public deploys)
+      #   JUPYTER_TOKEN=<token>       -> token-protected
+      #   JUPYTER_PASSWORD_HASH=<h>   -> password-protected (jupyter-server password)
+      #
+      # If you set none of them, the entrypoint generates a random token and
+      # prints it to the container logs.
+      # ------------------------------------------------------------------
+      JUPYTER_PUBLIC: "${JUPYTER_PUBLIC:-0}"
+      JUPYTER_TOKEN: "${JUPYTER_TOKEN:-}"
+      JUPYTER_PASSWORD_HASH: "${JUPYTER_PASSWORD_HASH:-}"
+
+      # Optional reverse-proxy bits.
+      JUPYTER_BASE_URL: "${JUPYTER_BASE_URL:-}"
+      JUPYTER_ALLOW_ORIGIN: "${JUPYTER_ALLOW_ORIGIN:-}"
+    volumes:
+      - flowquest-workspace:/workspace
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8888${JUPYTER_BASE_URL:-/}api/status || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+volumes:
+  flowquest-workspace:
