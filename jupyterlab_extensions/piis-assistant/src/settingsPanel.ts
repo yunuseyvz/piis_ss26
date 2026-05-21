@@ -358,7 +358,6 @@ export class SettingsPanel {
   private renderNotebookTab(): string {
     const state = this.callbacks.getState();
     const currentDifficulty = state?.difficulty ?? 'medium';
-    const initialized = Boolean(state?.initialized);
     const points = state?.pointsEarned ?? 0;
     const reflections = state?.reflections?.length ?? 0;
 
@@ -382,7 +381,7 @@ export class SettingsPanel {
         <div class="flowquest-eyebrow">Difficulty</div>
         <p class="flowquest-dim">
           Affects every LLM call for this notebook: explanations, quiz wording,
-          reflective questions, and how strict the baseline scoring is.
+          and reflective questions.
         </p>
         <div class="flowquest-difficultyGrid">${difficultyHtml}</div>
       </section>
@@ -390,12 +389,11 @@ export class SettingsPanel {
       <section class="flowquest-settingsSection flowquest-settingsDanger">
         <div class="flowquest-eyebrow">Danger zone</div>
         <p class="flowquest-dim">
-          Wipe FlowQuest progress for this notebook only. Removes baseline,
-          claimed missions, reflections, and quiz answers. The notebook code
-          and markdown are untouched. Difficulty is preserved.
+          Wipe FlowQuest progress for this notebook only. Removes claimed
+          missions, reflections, and quiz answers. The notebook code and
+          markdown are untouched. Difficulty is preserved.
         </p>
         <div class="flowquest-statRow">
-          <span class="flowquest-pill flowquest-pill-muted">${initialized ? 'Initialized' : 'Not initialized'}</span>
           <span class="flowquest-pill flowquest-pill-muted">${points} pts earned</span>
           <span class="flowquest-pill flowquest-pill-muted">${reflections} reflections</span>
         </div>

@@ -1,10 +1,8 @@
 /**
  * FlowQuest HUD banner — top of each notebook.
  *
- * After the Health-based rework this focuses on the single progression goal:
- * push Notebook Health from the baseline to >= 100. The banner surfaces a
- * prominent health bar, the Initialize button before baseline scoring, and
- * quick-jump tiles for open missions and region distribution.
+ * Simplified v3: shows XP score, missions count, and quick actions.
+ * No baseline scoring, no health meter, no workflow map.
  */
 
 import type { NotebookPanel } from '@jupyterlab/notebook';
@@ -15,9 +13,8 @@ import type { AnalysisResponse, QuestState } from './types';
 const HOST_CLASS = 'flowquest-banner';
 
 interface BannerCallbacks {
-  openSidebar: (tab?: 'quest' | 'workflow' | 'chat') => void;
+  openSidebar: (tab?: 'quest' | 'chat') => void;
   rescan: () => Promise<void>;
-  initialize: () => Promise<void>;
   openSettings: (tab?: 'global' | 'notebook') => void;
 }
 
@@ -39,11 +36,6 @@ export class NotebookBanner {
 
   setAnalyzing(isAnalyzing: boolean): void {
     this.analyzing = isAnalyzing;
-    this.render();
-  }
-
-  setInitializing(flag: boolean): void {
-    this.initializing = flag;
     this.render();
   }
 
@@ -73,25 +65,7 @@ export class NotebookBanner {
   private render(): void {
     const analysis = this.analysis;
     const state = this.state;
-    const initialized = Boolean(state?.initialized);
-    const won = Boolean(state?.won);
-
-    const health = state?.healthScore ?? 0;
-    const target = state?.healthTarget ?? 100;
-    const progress = target > 0 ? Math.max(0, Math.min(100, Math.round((health / target) * 100))) : 0;
-    // 10 cells, each represents 10% of the target. Round so a value of 75 fills 8 cells.
-    const meterTotal = 10;
-    const meterFilled = Math.max(
-      0,
-      Math.min(meterTotal, Math.round(progress / (100 / meterTotal)))
-    );
-    const meterCellsHtml = Array.from({ length: meterTotal }, (_, i) =>
-      i < meterFilled
-        ? `<span class="flowquest-bannerHealthCell is-filled${won ? ' is-win' : ''}"></span>`
-        : '<span class="flowquest-bannerHealthCell"></span>'
-    ).join('');
-    const healthLabel = state?.healthLabel ?? '—';
-    const healthClass = healthClassFor(health, won);
+    const xp = state?.pointsEarned ?? 0;
     const rank = state?.rankTitle ?? 'Notebook Novice';
 
     const missions = analysis?.missions ?? [];
@@ -99,118 +73,38 @@ export class NotebookBanner {
     const openMissionCount = missions.filter(m => !completedSet.has(`mission:${m.id}`)).length;
     const quizCount = (analysis?.injectionPoints ?? []).length;
 
-    const regionCounts = analysis?.regionCounts ?? {};
-    const regionOrder = analysis?.regionOrder ?? [
-      'setup',
-      'load',
-      'clean',
-      'explore',
-      'visualize',
-      'model',
-      'output',
-      'narrative',
-      'other'
-    ];
-    const regionIcons = analysis?.regionIcons ?? {};
-    const activeRegions = regionOrder.filter(r => (regionCounts[r] ?? 0) > 0);
-    const totalCells = Math.max(
-      1,
-      activeRegions.reduce((acc, r) => acc + (regionCounts[r] ?? 0), 0)
-    );
-    const regionSegments = activeRegions
-      .map(region => {
-        const count = regionCounts[region] ?? 0;
-        const width = (count / totalCells) * 100;
-        const icon = regionIcons[region] ?? '✨';
-        return `
-          <span
-            class="flowquest-bannerRegionSeg flowquest-region-${escapeHtml(region)}"
-            style="width: ${width.toFixed(2)}%"
-            title="${escapeHtml(`${region}: ${count} cell${count === 1 ? '' : 's'}`)}"
-            data-action="open-workflow"
-          ><span class="flowquest-bannerRegionIcon">${escapeHtml(icon)}</span></span>
-        `;
-      })
-      .join('');
-
-    const winStripe = won ? 'is-win' : '';
     this.host.innerHTML = `
-      <div class="flowquest-bannerInner ${winStripe}">
+      <div class="flowquest-bannerInner">
         <div class="flowquest-bannerBrand" data-action="open-sidebar">
-          <span class="flowquest-bannerMark">${won ? '🏆' : '🗺️'}</span>
+          <span class="flowquest-bannerMark">🗺️</span>
           <div>
             <div class="flowquest-bannerTitle">FlowQuest</div>
             <div class="flowquest-bannerSub">${escapeHtml(rank)}</div>
           </div>
         </div>
 
-        <div class="flowquest-bannerHealthWrap ${healthClass}" data-action="open-quest">
-          <div class="flowquest-bannerHealthTop">
-            <span class="flowquest-bannerHealthLabel">Notebook Health</span>
-            <span class="flowquest-bannerHealthStatus">${escapeHtml(
-              won ? 'Complete 🏆' : healthLabel
-            )}</span>
-          </div>
-          <div
-            class="flowquest-bannerHealthMeter"
-            role="progressbar"
-            aria-valuemin="0"
-            aria-valuemax="${target}"
-            aria-valuenow="${health}"
-          >
-            ${meterCellsHtml}
-          </div>
-          <div class="flowquest-bannerHealthValue">
-            <strong>${health}</strong><span> / ${target}</span>
-            ${
-              !won && initialized
-                ? `<span class="flowquest-bannerHealthRemaining">· ${Math.max(
-                    0,
-                    target - health
-                  )} to go</span>`
-                : ''
-            }
-          </div>
-        </div>
-
-        ${
-          !initialized
-            ? `
-              <button
-                type="button"
-                class="flowquest-bannerInitBtn"
-                data-action="initialize"
-                ${this.initializing ? 'disabled' : ''}
-                title="FlowQuest will grade your notebook against fixed criteria and give you a baseline score."
-              >${this.initializing ? '…scoring baseline' : '🚀 Initialize FlowQuest'}</button>
-            `
-            : `
-              <button
-                type="button"
-                class="flowquest-bannerTile flowquest-bannerTile-missions"
-                data-action="open-quest"
-                title="Open Quest tab"
-              >
-                <div class="flowquest-bannerTileLabel">Missions</div>
-                <div class="flowquest-bannerTileValue">${openMissionCount}</div>
-                <div class="flowquest-bannerTileFoot">${missions.length} total · ${quizCount} quiz${
-                  quizCount === 1 ? '' : 'zes'
-                }</div>
-              </button>
-            `
-        }
+        <button
+          type="button"
+          class="flowquest-bannerTile flowquest-bannerTile-level"
+          data-action="open-quest"
+          title="Open Quest tab"
+        >
+          <div class="flowquest-bannerTileLabel">XP Score</div>
+          <div class="flowquest-bannerTileValue">${xp}</div>
+          <div class="flowquest-bannerTileFoot">collect more by completing missions</div>
+        </button>
 
         <button
           type="button"
-          class="flowquest-bannerTile flowquest-bannerTile-regions"
-          data-action="open-workflow"
-          title="Open Workflow tab"
+          class="flowquest-bannerTile flowquest-bannerTile-missions"
+          data-action="open-quest"
+          title="Open Quest tab"
         >
-          <div class="flowquest-bannerTileLabel">Regions</div>
-          <div class="flowquest-bannerRegionBar">
-            ${regionSegments || '<span class="flowquest-bannerRegionEmpty">scan pending</span>'}
-          </div>
-          <div class="flowquest-bannerTileFoot">${activeRegions.length} active · ${totalCells} cells</div>
+          <div class="flowquest-bannerTileLabel">Missions</div>
+          <div class="flowquest-bannerTileValue">${openMissionCount}</div>
+          <div class="flowquest-bannerTileFoot">${missions.length} total · ${quizCount} quiz${
+            quizCount === 1 ? '' : 'zes'
+          }</div>
         </button>
 
         <div class="flowquest-bannerActions">
@@ -249,20 +143,12 @@ export class NotebookBanner {
           void this.callbacks.rescan();
           return;
         }
-        if (action === 'initialize') {
-          void this.callbacks.initialize();
-          return;
-        }
         if (action === 'open-settings') {
           this.callbacks.openSettings('global');
           return;
         }
         if (action === 'open-difficulty') {
           this.callbacks.openSettings('notebook');
-          return;
-        }
-        if (action === 'open-workflow') {
-          this.callbacks.openSidebar('workflow');
           return;
         }
         if (action === 'open-quest') {
@@ -277,16 +163,7 @@ export class NotebookBanner {
   private analysis: AnalysisResponse | null = null;
   private state: QuestState | null = null;
   private analyzing = false;
-  private initializing = false;
   private host: HTMLElement;
-}
-
-function healthClassFor(health: number, won: boolean): string {
-  if (won) return 'is-win';
-  if (health >= 80) return 'is-thriving';
-  if (health >= 55) return 'is-stable';
-  if (health >= 30) return 'is-fragile';
-  return 'is-critical';
 }
 
 function difficultyLabelFor(value: string): string {

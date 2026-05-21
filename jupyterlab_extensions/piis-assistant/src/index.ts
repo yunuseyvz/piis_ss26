@@ -11,7 +11,7 @@ import { QuestCellRenderer } from './questCells';
 import { QuestMetadataStore, EMPTY_QUEST_STATE } from './questStore';
 import { SettingsPanel } from './settingsPanel';
 import { AssistantSidebar } from './sidebar';
-import type { AnalysisResponse, InitializeResponse, QuestState } from './types';
+import type { AnalysisResponse, QuestState } from './types';
 
 const PLUGIN_ID = 'jupyterlab-piis-assistant:plugin';
 const COMMAND_FOCUS_SIDEBAR = 'jupyterlab-piis-assistant:focus-sidebar';
@@ -86,14 +86,6 @@ function activate(
       return bundle?.state ?? { ...EMPTY_QUEST_STATE };
     },
     getNotebookPath: () => currentPanel()?.context.path ?? '',
-    initializeNotebook: async () => {
-      const panel = currentPanel();
-      if (!panel) {
-        sidebar.flashToast('Open a notebook first.');
-        return;
-      }
-      await initializeNotebook(panel);
-    },
     openSettings: tab => settingsPanel.open(tab ?? 'global')
   });
 
@@ -192,55 +184,6 @@ function activate(
     }, delay);
   };
 
-  const initializeNotebook = async (panel: NotebookPanel): Promise<void> => {
-    const bundle = bundles.get(panel);
-    if (!bundle) {
-      sidebar.flashToast('Notebook not ready yet.');
-      return;
-    }
-    // Make sure we have a current analysis to grade against.
-    if (!bundle.analysis) {
-      await analyze(panel, false);
-    }
-    if (!bundle.analysis) {
-      sidebar.flashToast('Scan the notebook first.');
-      return;
-    }
-    sidebar.setInitializing(true);
-    bundle.banner.setInitializing(true);
-    bundle.avatar.setThinking(true);
-    try {
-      const response = await apiRequest<InitializeResponse>('piis-assistant/initialize', {
-        method: 'POST',
-        body: JSON.stringify({
-          state: bundle.store.readRaw(),
-          analysis: bundle.analysis,
-          notebookPath: panel.context.path
-        })
-      });
-      bundle.state = withPanelIdentity(response.state, panel);
-      bundle.store.write(bundle.state);
-      bundle.banner.update(bundle.analysis, bundle.state);
-      bundle.avatar.update(bundle.analysis, bundle.state);
-      if (panel === currentPanel()) {
-        sidebar.updateQuestState(bundle.state);
-      }
-      sidebar.flashToast(
-        `Baseline: ${response.baseline.baselineHealth}/100${
-          response.baseline.fallback ? ' (fallback scoring)' : ''
-        }`
-      );
-      // Run another analyze pass now that we're initialized so auto-checks fire.
-      void analyze(panel);
-    } catch (error) {
-      sidebar.flashToast(`Initialize failed: ${(error as Error).message}`);
-    } finally {
-      sidebar.setInitializing(false);
-      bundle.banner.setInitializing(false);
-      bundle.avatar.setThinking(false);
-    }
-  };
-
   const connectPanel = (panel: NotebookPanel): void => {
     if (connected.has(panel)) {
       return;
@@ -262,30 +205,8 @@ function activate(
 
     void panel.context.ready.then(() => {
       const store = new QuestMetadataStore(panel);
-      // Hydrate the initial public view from raw metadata by asking the backend
-      // (it normalizes and computes level/rank/progress).
-      let initialState: QuestState = { ...EMPTY_QUEST_STATE };
-      apiRequest<{ state: QuestState }>('piis-assistant/quest/init', {
-        method: 'POST',
-        body: JSON.stringify({ state: store.readRaw() })
-      })
-        .then(response => {
-          const bundle = bundles.get(panel);
-          if (!bundle) {
-            return;
-          }
-          bundle.state = withPanelIdentity(response.state, panel);
-          bundle.store.write(bundle.state);
-          if (panel === currentPanel()) {
-            sidebar.updateQuestState(bundle.state);
-          }
-          bundle.decorator.refresh(bundle.analysis, bundle.state);
-          bundle.questCells.refresh(bundle.analysis);
-          bundle.banner.update(bundle.analysis, bundle.state);
-        })
-        .catch(() => {
-          /* ignore */
-        });
+      // Start with empty state; the first analyze call will populate it.
+      const initialState: QuestState = { ...EMPTY_QUEST_STATE };
 
       const decorator = new CellDecorator(panel, {
         getAnalysis: () => bundles.get(panel)?.analysis ?? null,
@@ -341,7 +262,6 @@ function activate(
           }
         },
         rescan: () => analyze(panel, true),
-        initialize: () => initializeNotebook(panel),
         openSettings: tab => settingsPanel.open(tab ?? 'notebook')
       });
 

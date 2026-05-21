@@ -20,7 +20,7 @@ export type AvatarMood =
   | 'sleepy';
 
 interface AvatarCallbacks {
-  openSidebar: (tab?: 'quest' | 'workflow' | 'chat') => void;
+  openSidebar: (tab?: 'quest' | 'chat') => void;
   focusCell: (index: number) => void;
 }
 
@@ -39,13 +39,13 @@ const MOOD_MESSAGES: Record<AvatarMood, string[]> = {
   ],
   happy: [
     'Great progress! 🎉',
-    'Your notebook looks healthy! 💚',
+    'Your notebook is looking great! 💚',
     'Keep up the good flow! 🌊',
     'You\'re on a roll! 🎲'
   ],
   celebrating: [
     'You did it! 🏆',
-    'Notebook Health rising! 📈',
+    'XP rising! 📈',
     'Victory dance! 💃',
     'Quest complete! ⭐'
   ],
@@ -63,12 +63,12 @@ const MOOD_MESSAGES: Record<AvatarMood, string[]> = {
 };
 
 const TIP_MESSAGES = [
-  'Tip: Initialize to get your baseline score!',
-  'Tip: Complete missions to boost Health.',
+  'Tip: Complete missions to earn XP!',
   'Tip: Reflection cells earn bonus XP.',
   'Tip: Try the quiz injections for extra points!',
   'Tip: A balanced notebook has many regions.',
-  'Tip: Click the banner to see full stats.'
+  'Tip: Click the banner to see your XP score.',
+  'Tip: Claim missions from the Quest tab.'
 ];
 
 export class AvatarAssistant {
@@ -148,18 +148,15 @@ export class AvatarAssistant {
     if (!state) {
       return 'idle';
     }
-    if (state.won) {
+    const xp = state.pointsEarned ?? 0;
+    if (xp >= 200) {
       return 'celebrating';
     }
-    const health = state.healthScore ?? 0;
-    if (health >= 80) {
+    if (xp >= 50) {
       return 'happy';
     }
-    if (health >= 40) {
+    if (xp > 0) {
       return 'idle';
-    }
-    if (health > 0) {
-      return 'concerned';
     }
     return 'sleepy';
   }
@@ -223,11 +220,11 @@ export class AvatarAssistant {
   private render(): void {
     const mood = this.mood;
     const state = this.state;
-    const health = state?.healthScore ?? 0;
+    const xp = state?.pointsEarned ?? 0;
     const rank = state?.rankTitle ?? 'Notebook Novice';
 
     this.host.innerHTML = `
-      <div class="flowquest-avatar" data-mood="${mood}" title="${escapeHtml(rank)} — ${health} HP">
+      <div class="flowquest-avatar" data-mood="${mood}" title="${escapeHtml(rank)} — ${xp} XP">
         <div class="flowquest-avatarBody">
           ${this.renderAvatarSvg(mood)}
         </div>

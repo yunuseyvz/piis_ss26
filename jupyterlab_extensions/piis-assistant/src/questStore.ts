@@ -41,7 +41,7 @@ export const EMPTY_QUEST_STATE: QuestState = {
   healthTarget: 100,
   healthRemaining: 100,
   healthProgress: 0,
-  healthLabel: 'Critical',
+  healthLabel: '—',
   rankTitle: 'Notebook Novice',
   pointsEarned: 0,
   pointsAvailable: 0,

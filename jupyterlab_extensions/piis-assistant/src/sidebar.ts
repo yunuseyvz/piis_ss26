@@ -39,7 +39,7 @@ const EMPTY_STATUS: EndpointStatus = {
 const INITIAL_MESSAGE: ConversationMessage = {
   role: 'assistant',
   content:
-    'Welcome to FlowQuest. Press Initialize in the banner to get your Notebook Health baseline. Then claim missions, answer quizzes, and push Health to 100 to win.',
+    'Welcome to FlowQuest! Complete missions, answer quizzes, and collect XP to level up your notebook.',
   meta: 'FlowQuest ready',
   includeInHistory: false
 };
@@ -50,7 +50,6 @@ export interface SidebarCallbacks {
   applyState: (state: QuestState) => void;
   getState: () => QuestState;
   getNotebookPath: () => string;
-  initializeNotebook: () => Promise<void>;
   openSettings: (tab?: 'global' | 'notebook') => void;
 }
 
@@ -88,7 +87,7 @@ export class AssistantSidebar extends Widget {
       const total = analysis.autoCompleted.reduce((acc, m) => acc + (m.points || 0), 0);
       if (total > 0) {
         this.flashToast(
-          `+${total} health from ${analysis.autoCompleted.length} auto-check(s)`
+          `+${total} XP from ${analysis.autoCompleted.length} auto-check(s)`
         );
       }
     }
@@ -102,11 +101,6 @@ export class AssistantSidebar extends Widget {
 
   setAnalyzing(isAnalyzing: boolean): void {
     this._analyzing = isAnalyzing;
-    this.render();
-  }
-
-  setInitializing(flag: boolean): void {
-    this._initializing = flag;
     this.render();
   }
 
@@ -181,7 +175,6 @@ export class AssistantSidebar extends Widget {
         ${this.renderTabs()}
         <div class="flowquest-body">
           ${this._tab === 'quest' ? this.renderQuestTab() : ''}
-          ${this._tab === 'workflow' ? this.renderWorkflowTab() : ''}
           ${this._tab === 'chat' ? this.renderChatTab() : ''}
         </div>
         ${this._toast ? `<div class="flowquest-toast">${escapeHtml(this._toast)}</div>` : ''}
@@ -194,10 +187,7 @@ export class AssistantSidebar extends Widget {
     const statusClass = this._status.configured ? 'is-live' : 'is-missing';
     const state = this._questState ?? EMPTY_QUEST_STATE;
     const rank = state.rankTitle ?? 'Notebook Novice';
-    const health = state.healthScore;
-    const target = state.healthTarget || 100;
-    const progress = Math.min(100, Math.round((state.healthProgress ?? 0) * 100));
-    const won = state.won;
+    const xp = state.pointsEarned ?? 0;
     return `
       <header class="flowquest-header">
         <div class="flowquest-brand">
@@ -211,21 +201,9 @@ export class AssistantSidebar extends Widget {
           <span class="flowquest-pill ${statusClass}">${escapeHtml(
             this._status.configured ? 'live' : 'missing'
           )}</span>
-          ${
-            won
-              ? '<span class="flowquest-pill flowquest-pill-win">🏆 100%</span>'
-              : `<span class="flowquest-pill flowquest-pill-muted">${escapeHtml(
-                  state.healthLabel ?? '—'
-                )}</span>`
-          }
+          <span class="flowquest-pill flowquest-pill-muted">${xp} XP</span>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="settings" title="Settings">⚙️</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="refresh">↻</button>
-        </div>
-        <div class="flowquest-xpBar" title="${health} / ${target}">
-          <div class="flowquest-xpBarFill ${won ? 'is-win' : ''}" style="width: ${progress}%"></div>
-          <span class="flowquest-xpBarLabel">${health} / ${target} · ${escapeHtml(
-            state.healthLabel ?? '—'
-          )}</span>
         </div>
       </header>
     `;
@@ -234,7 +212,6 @@ export class AssistantSidebar extends Widget {
   private renderTabs(): string {
     const tabs: Array<{ id: SidebarTab; icon: string; label: string }> = [
       { id: 'quest', icon: '⭐', label: 'Quest' },
-      { id: 'workflow', icon: '🗺️', label: 'Workflow' },
       { id: 'chat', icon: '💬', label: 'Chat' }
     ];
     return `
@@ -264,13 +241,7 @@ export class AssistantSidebar extends Widget {
     const state = this._questState ?? EMPTY_QUEST_STATE;
     const analysis = this._analysis;
     const notebookLabel = this._notebook.hasNotebook ? this._notebook.notebookName : 'No notebook open';
-    const notInitialized = !state.initialized;
-
-    const health = state.healthScore;
-    const target = state.healthTarget || 100;
-    const remaining = Math.max(0, state.healthRemaining);
-    const progress = Math.round((state.healthProgress ?? 0) * 100);
-    const healthClass = healthClassFor(health, state.won);
+    const xp = state.pointsEarned ?? 0;
 
     const missions = analysis?.missions ?? [];
     const completed = new Set(state.completedAwardKeys ?? []);
@@ -280,32 +251,6 @@ export class AssistantSidebar extends Widget {
 
     const missionHtml = missions
       .map(mission => this.renderMissionCard(mission, isMissionClaimed(mission.id)))
-      .join('');
-
-    const criteriaHtml = (state.criteria ?? [])
-      .map(criterion => {
-        const budget = Math.max(1, criterion.budget);
-        const earned = criterion.earned ?? 0;
-        const pct = Math.min(100, Math.round((earned / budget) * 100));
-        const baselineScore =
-          criterion.baselineScore !== null && criterion.baselineScore !== undefined
-            ? criterion.baselineScore
-            : null;
-        return `
-          <li class="flowquest-critRow">
-            <div class="flowquest-critHead">
-              <span class="flowquest-critIcon">${escapeHtml(criterion.icon)}</span>
-              <span class="flowquest-critLabel">${escapeHtml(criterion.label)}</span>
-              <span class="flowquest-critValue">${earned}/${budget} pts${
-                baselineScore !== null ? ` · baseline ${baselineScore}/10` : ''
-              }</span>
-            </div>
-            <div class="flowquest-critBar">
-              <div class="flowquest-critBarFill" style="width: ${pct}%"></div>
-            </div>
-          </li>
-        `;
-      })
       .join('');
 
     const awardLogHtml = (state.awardLog ?? [])
@@ -335,62 +280,22 @@ export class AssistantSidebar extends Widget {
             </button>
           </div>
 
-          ${
-            notInitialized
-              ? `
-                <div class="flowquest-initCard">
-                  <div class="flowquest-initCardHead">
-                    <span class="flowquest-initMark">🧭</span>
-                    <div>
-                      <div class="flowquest-cardTitle">Start your quest</div>
-                      <div class="flowquest-dim">
-                        FlowQuest will grade your notebook against ${escapeHtml(
-                          String(state.criteria.length || 7)
-                        )} criteria and give you a baseline. Your mission: push Notebook Health to 100.
-                      </div>
-                    </div>
-                  </div>
-                  <button type="button" class="flowquest-btn flowquest-btn-primary flowquest-btn-big"
-                    data-action="initialize" ${this._initializing ? 'disabled' : ''}>
-                    ${this._initializing ? 'Scoring baseline…' : '🚀 Initialize FlowQuest'}
-                  </button>
-                </div>
-              `
-              : `
-                <div class="flowquest-healthRow">
-                  <div class="flowquest-healthCircle ${healthClass}">
-                    <div class="flowquest-healthValue">${health}</div>
-                    <div class="flowquest-healthHint">/ ${target}</div>
-                  </div>
-                  <div class="flowquest-healthCopy">
-                    <div class="flowquest-healthLabel">${escapeHtml(state.healthLabel)}${
-                      state.won ? ' · 🏆 won' : ''
-                    }</div>
-                    <div class="flowquest-healthSub">
-                      ${
-                        state.won
-                          ? 'You pushed Notebook Health past 100. Well done.'
-                          : `${remaining} health to reach 100 · ${openMissions.length} mission${
-                              openMissions.length === 1 ? '' : 's'
-                            } open.`
-                      }
-                    </div>
-                    <div class="flowquest-bannerXpBar">
-                      <div class="flowquest-bannerXpBarFill ${state.won ? 'is-win' : ''}" style="width: ${progress}%"></div>
-                    </div>
-                    ${
-                      state.baselineNotes
-                        ? `<div class="flowquest-dim flowquest-baselineNotes">${escapeHtml(
-                            state.baselineNotes
-                          )}</div>`
-                        : ''
-                    }
-                  </div>
-                </div>
-
-                <ul class="flowquest-critList">${criteriaHtml}</ul>
-              `
-          }
+          <div class="flowquest-xpGrid">
+            <div class="flowquest-xpCard flowquest-xpCard-exploration">
+              <span class="flowquest-xpCardIcon">⭐</span>
+              <div>
+                <div class="flowquest-xpCardValue">${xp}</div>
+                <div class="flowquest-xpCardLabel">Total XP</div>
+              </div>
+            </div>
+            <div class="flowquest-xpCard flowquest-xpCard-stabilization">
+              <span class="flowquest-xpCardIcon">🎯</span>
+              <div>
+                <div class="flowquest-xpCardValue">${openMissions.length}</div>
+                <div class="flowquest-xpCardLabel">Open Missions</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="flowquest-card">
@@ -438,7 +343,7 @@ export class AssistantSidebar extends Widget {
   }
 
   private renderMissionCard(mission: Mission, claimed: boolean): string {
-    const points = mission.health_points || mission.xp;
+    const points = mission.xp ?? mission.health_points ?? 0;
     const kindIcon = MISSION_KIND_ICON[mission.kind] ?? '✨';
     const targets = mission.cell_indices.length
       ? `<div class="flowquest-missionTargets">Cells: ${mission.cell_indices
@@ -455,7 +360,7 @@ export class AssistantSidebar extends Widget {
       }">
         <div class="flowquest-missionHead">
           <span class="flowquest-missionKind">${kindIcon} ${escapeHtml(mission.kind)}</span>
-          <span class="flowquest-missionXp">+${points} health</span>
+          <span class="flowquest-missionXp">+${points} XP</span>
         </div>
         <div class="flowquest-missionTitle">${escapeHtml(mission.title)}</div>
         <div class="flowquest-missionDesc">${escapeHtml(mission.description)}</div>
@@ -474,127 +379,6 @@ export class AssistantSidebar extends Widget {
           >${claimed ? 'Claimed' : 'Claim +' + points}</button>
         </div>
       </li>
-    `;
-  }
-
-  private renderWorkflowTab(): string {
-    const analysis = this._analysis;
-    if (!analysis) {
-      return `
-        <section class="flowquest-tabPanel">
-          <div class="flowquest-card">
-            <div class="flowquest-cardTitle">Workflow map</div>
-            <div class="flowquest-dim">Open a notebook and run a scan to build the workflow map.</div>
-            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="analyze">Scan now</button>
-          </div>
-        </section>
-      `;
-    }
-
-    const regionCounts = analysis.regionCounts;
-    const maxCount = Math.max(1, ...Object.values(regionCounts));
-    const regions = analysis.regionOrder
-      .filter(region => (regionCounts[region] ?? 0) > 0)
-      .map(region => {
-        const count = regionCounts[region] ?? 0;
-        const icon = analysis.regionIcons[region] ?? '✨';
-        const width = Math.max(6, Math.round((count / maxCount) * 100));
-        return `
-          <div class="flowquest-regionRow" data-region="${escapeHtml(region)}">
-            <div class="flowquest-regionLabel"><span>${escapeHtml(icon)}</span> ${escapeHtml(region)}</div>
-            <div class="flowquest-regionBar">
-              <div class="flowquest-regionBarFill flowquest-region-${escapeHtml(region)}" style="width: ${width}%"></div>
-            </div>
-            <div class="flowquest-regionCount">${count}</div>
-          </div>
-        `;
-      })
-      .join('');
-
-    const cellRows = analysis.cells
-      .map(cell => {
-        const worst = cell.issues.reduce<string>((acc, issue) => {
-          if (issue.severity === 'error') return 'error';
-          if (issue.severity === 'warn' && acc !== 'error') return 'warn';
-          if (issue.severity === 'info' && acc === '') return 'info';
-          return acc;
-        }, '');
-        return `
-          <li class="flowquest-cellRow flowquest-region-${escapeHtml(cell.region)} ${
-            worst ? `has-${worst}` : ''
-          }">
-            <button type="button" class="flowquest-cellRowBtn" data-action="focus-cell" data-index="${cell.index}">
-              <span class="flowquest-cellRowIcon">${escapeHtml(cell.regionIcon)}</span>
-              <span class="flowquest-cellRowIndex">#${cell.index + 1}</span>
-              <span class="flowquest-cellRowSummary">${escapeHtml(cell.summary || '[empty]')}</span>
-              <span class="flowquest-cellRowTags">
-                ${cell.issues
-                  .map(
-                    issue =>
-                      `<span class="flowquest-tag flowquest-tag-${issue.severity}" title="${escapeHtml(
-                        issue.message
-                      )}">${escapeHtml(issue.kind.replace(/_/g, ' '))}</span>`
-                  )
-                  .join('')}
-              </span>
-            </button>
-          </li>
-        `;
-      })
-      .join('');
-
-    const issueList = analysis.issues
-      .map(
-        issue => `
-          <li class="flowquest-issueEntry flowquest-issue-${issue.severity}">
-            <button type="button" class="flowquest-issueBtn" data-action="focus-cell" data-index="${issue.cell_index}">
-              <span class="flowquest-issueIcon">${escapeHtml(
-                issue.severity === 'error' ? '🔥' : issue.severity === 'warn' ? '⚠️' : '💡'
-              )}</span>
-              <span>
-                <strong>Cell ${issue.cell_index + 1}</strong> · ${escapeHtml(
-                  issue.kind.replace(/_/g, ' ')
-                )}
-              </span>
-              <span class="flowquest-dim">${escapeHtml(issue.message)}</span>
-            </button>
-          </li>
-        `
-      )
-      .join('');
-
-    return `
-      <section class="flowquest-tabPanel">
-        <div class="flowquest-card">
-          <div class="flowquest-cardHead">
-            <div class="flowquest-cardTitle">Region map</div>
-            <div class="flowquest-dim">${analysis.summary.code_cells ?? 0} code · ${
-              analysis.summary.markdown_cells ?? 0
-            } md</div>
-          </div>
-          <div class="flowquest-regionList">${regions || '<div class="flowquest-dim">No regions classified yet.</div>'}</div>
-        </div>
-
-        <div class="flowquest-card">
-          <div class="flowquest-cardHead">
-            <div class="flowquest-cardTitle">Cells</div>
-            <div class="flowquest-dim">${analysis.cells.length} total</div>
-          </div>
-          <ul class="flowquest-cellList">${cellRows}</ul>
-        </div>
-
-        <div class="flowquest-card">
-          <div class="flowquest-cardHead">
-            <div class="flowquest-cardTitle">Issues</div>
-            <div class="flowquest-dim">${analysis.issues.length} detected</div>
-          </div>
-          ${
-            analysis.issues.length
-              ? `<ul class="flowquest-issueFeed">${issueList}</ul>`
-              : '<div class="flowquest-dim">✨ No issues detected. Great shape.</div>'
-          }
-        </div>
-      </section>
     `;
   }
 
@@ -724,10 +508,7 @@ export class AssistantSidebar extends Widget {
           void this.callbacks.refreshAnalysis();
           return;
         }
-        if (action === 'initialize') {
-          void this.callbacks.initializeNotebook();
-          return;
-        }
+
         if (action === 'ask') {
           void this.submitPrompt();
           return;
@@ -785,7 +566,7 @@ export class AssistantSidebar extends Widget {
         })
       });
       if (response.outcome?.granted) {
-        this.flashToast(`+${response.outcome.pointsAwarded ?? 0} health`);
+        this.flashToast(`+${response.outcome.pointsAwarded ?? 0} XP`);
       }
       this._questState = response.state;
       this.callbacks.applyState(response.state);
@@ -888,7 +669,6 @@ export class AssistantSidebar extends Widget {
 
   private _analysis: AnalysisResponse | null = null;
   private _analyzing = false;
-  private _initializing = false;
   private _loadingNextSteps = false;
   private _messages: ConversationMessage[] = [INITIAL_MESSAGE];
   private _meta = 'Status has not been loaded yet.';
@@ -900,14 +680,6 @@ export class AssistantSidebar extends Widget {
   private _status: EndpointStatus = EMPTY_STATUS;
   private _tab: SidebarTab = 'quest';
   private _toast: string | null = null;
-}
-
-function healthClassFor(health: number, won: boolean): string {
-  if (won) return 'is-win';
-  if (health >= 80) return 'is-thriving';
-  if (health >= 55) return 'is-stable';
-  if (health >= 30) return 'is-fragile';
-  return 'is-critical';
 }
 
 export type { FlatIssue, InitializeResponse };
