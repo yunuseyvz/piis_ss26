@@ -2500,3 +2500,210 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   border-left: 3px solid var(--fq-warn);
   background: rgba(255, 170, 59, 0.08);
 }
+
+/* ========================================================================
+   Avatar Assistant — playful floating companion (bottom-right)
+   ======================================================================== */
+
+.flowquest-avatarHost {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.flowquest-avatar {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.15));
+  animation: flowquest-avatarFloat 3.2s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.flowquest-avatarBody {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  transition: transform 0.2s ease;
+}
+
+.flowquest-avatar:hover .flowquest-avatarBody {
+  transform: scale(1.08);
+}
+
+.flowquest-avatar:active .flowquest-avatarBody {
+  transform: scale(0.95);
+}
+
+.flowquest-avatarSvg {
+  display: block;
+  width: 56px;
+  height: 56px;
+  transition: transform 0.3s ease;
+}
+
+/* Mood-specific animations */
+.flowquest-avatar[data-mood="celebrating"] {
+  animation: flowquest-avatarFloat 0.8s ease-in-out infinite, flowquest-avatarWiggle 0.6s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="thinking"] {
+  animation: flowquest-avatarFloat 2s ease-in-out infinite, flowquest-avatarNod 1.2s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="concerned"] {
+  animation: flowquest-avatarFloat 4s ease-in-out infinite, flowquest-avatarShake 2.5s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="happy"] {
+  animation: flowquest-avatarFloat 2.8s ease-in-out infinite, flowquest-avatarBounce 1.4s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarWiggle {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(3deg); }
+}
+
+@keyframes flowquest-avatarNod {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+
+@keyframes flowquest-avatarShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-1px); }
+  75% { transform: translateX(1px); }
+}
+
+@keyframes flowquest-avatarBounce {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-4px) scale(1.02); }
+  60% { transform: translateY(-2px) scale(1.01); }
+}
+
+/* Ring pulse on hover */
+.flowquest-avatarRing {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--fq-accent-2);
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.flowquest-avatar:hover .flowquest-avatarRing {
+  opacity: 0.5;
+  transform: scale(1);
+  animation: flowquest-ringPulse 1.5s ease-out infinite;
+}
+
+@keyframes flowquest-ringPulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+/* Speech bubble */
+.flowquest-avatarBubble {
+  position: absolute;
+  bottom: 72px;
+  right: 0;
+  width: 220px;
+  padding: 10px 12px;
+  border: 2px solid #111;
+  background: var(--jp-layout-color0, #fff);
+  color: var(--jp-ui-font-color1);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 3px 3px 0 var(--fq-accent-2);
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: auto;
+  z-index: 101;
+}
+
+.flowquest-avatarBubble.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.flowquest-avatarBubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 22px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid #111;
+}
+
+.flowquest-avatarBubble::before {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  right: 24px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--jp-layout-color0, #fff);
+  z-index: 1;
+}
+
+.flowquest-avatarBubbleText {
+  display: block;
+  padding-right: 18px;
+}
+
+.flowquest-avatarBubbleClose {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--jp-ui-font-color2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.flowquest-avatarBubbleClose:hover {
+  color: var(--jp-ui-font-color0);
+}
+
+/* Dark mode */
+body[data-jp-theme-light='false'] .flowquest-avatarBubble {
+  background: var(--jp-layout-color1, #1e1e1e);
+}
+
+body[data-jp-theme-light='false'] .flowquest-avatarBubble::before {
+  border-top-color: var(--jp-layout-color1, #1e1e1e);
+}

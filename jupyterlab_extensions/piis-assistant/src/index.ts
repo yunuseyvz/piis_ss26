@@ -3,6 +3,7 @@ import { ICommandPalette } from '@jupyterlab/apputils';
 import { INotebookTracker, NotebookPanel } from '@jupyterlab/notebook';
 
 import { apiRequest } from './api';
+import { AvatarAssistant } from './avatarAssistant';
 import { CellDecorator } from './cellDecorations';
 import { NotebookBanner } from './notebookBanner';
 import { buildAnalysisPayload, describeNotebook } from './notebookContext';
@@ -23,6 +24,7 @@ interface PanelBundle {
   decorator: CellDecorator;
   questCells: QuestCellRenderer;
   banner: NotebookBanner;
+  avatar: AvatarAssistant;
   analysis: AnalysisResponse | null;
   state: QuestState;
   store: QuestMetadataStore;
@@ -139,6 +141,7 @@ function activate(
     sidebar.setAnalyzing(true);
     const bundlePre = bundles.get(panel);
     bundlePre?.banner.setAnalyzing(true);
+    bundlePre?.avatar.setThinking(true);
     try {
       const bundle = bundles.get(panel);
       const payload = buildAnalysisPayload(panel);
@@ -154,6 +157,7 @@ function activate(
         bundle.decorator.refresh(response, bundle.state);
         bundle.questCells.refresh(response);
         bundle.banner.update(response, bundle.state);
+        bundle.avatar.update(response, bundle.state);
       }
       if (panel === currentPanel()) {
         sidebar.updateAnalysis(response);
@@ -170,6 +174,7 @@ function activate(
       sidebar.setAnalyzing(false);
       const bundle = bundles.get(panel);
       bundle?.banner.setAnalyzing(false);
+      bundle?.avatar.setThinking(false);
     }
   };
 
@@ -203,6 +208,7 @@ function activate(
     }
     sidebar.setInitializing(true);
     bundle.banner.setInitializing(true);
+    bundle.avatar.setThinking(true);
     try {
       const response = await apiRequest<InitializeResponse>('piis-assistant/initialize', {
         method: 'POST',
@@ -215,6 +221,7 @@ function activate(
       bundle.state = withPanelIdentity(response.state, panel);
       bundle.store.write(bundle.state);
       bundle.banner.update(bundle.analysis, bundle.state);
+      bundle.avatar.update(bundle.analysis, bundle.state);
       if (panel === currentPanel()) {
         sidebar.updateQuestState(bundle.state);
       }
@@ -230,6 +237,7 @@ function activate(
     } finally {
       sidebar.setInitializing(false);
       bundle.banner.setInitializing(false);
+      bundle.avatar.setThinking(false);
     }
   };
 
@@ -337,10 +345,28 @@ function activate(
         openSettings: tab => settingsPanel.open(tab ?? 'notebook')
       });
 
+      const avatar = new AvatarAssistant(panel, {
+        openSidebar: tab => {
+          app.shell.activateById(AssistantSidebar.ID);
+          if (tab) {
+            sidebar.showTab(tab);
+          }
+        },
+        focusCell: index => {
+          const widget = panel.content.widgets[index];
+          if (!widget) {
+            return;
+          }
+          panel.content.activeCellIndex = index;
+          widget.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      });
+
       bundles.set(panel, {
         decorator,
         questCells,
         banner,
+        avatar,
         analysis: null,
         state: initialState,
         store,
@@ -379,6 +405,7 @@ function activate(
       bundle?.decorator.dispose();
       bundle?.questCells.detachAll();
       bundle?.banner.dispose();
+      bundle?.avatar.dispose();
       bundles.delete(panel);
       if (panel === currentPanel()) {
         syncNotebookContext();
