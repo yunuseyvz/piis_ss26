@@ -4,51 +4,61 @@ A practical reference for the extension's API surface, persistence model, and th
 
 ## Persistence model
 
-### Per-notebook state
+### Global progression (server-owned)
 
-Stored at `metadata.flowquest` inside the `.ipynb`. Shape (after normalisation):
+XP and levels belong to the **user**, not the notebook. They live server-side at `~/.flowquest/progress.json` (mode `0600`), owned by `progress_store.py`. Shape (after normalisation by `gamification.normalize_state`):
 
 ```json
 {
-  "schemaVersion": 2,
-  "initialized": true,
-  "baselineHealth": 64,
-  "baselineBreakdown": {
-    "workflow_clarity": 7,
-    "execution_consistency": 6,
-    "data_hygiene": 6,
-    "reproducibility": 5,
-    "analysis_depth": 7,
-    "model_rigor": 5,
-    "reader_understanding": 6
-  },
-  "baselineNotes": "Clear narrative; no random_state; missing model evaluation.",
-  "healthPoints": {
-    "workflow_clarity": 0,
-    "execution_consistency": 8,
-    "data_hygiene": 0,
-    "reproducibility": 0,
-    "analysis_depth": 0,
-    "model_rigor": 10,
-    "reader_understanding": 4
+  "schemaVersion": 4,
+  "xpTotal": 128,
+  "xpByCategory": {
+    "exploration": 40,
+    "understanding": 53,
+    "stabilization": 27,
+    "reflection": 8
   },
   "completedAwardKeys": [
-    "mission:stab-rerun-clean",
-    "mission:und-evaluate-model",
-    "explain:abc123",
-    "reflection:cell-4"
+    "notebooks/03_messy.ipynb::mission:stab-rerun-clean",
+    "notebooks/03_messy.ipynb::explain:abc123",
+    "notebooks/03_messy.ipynb::reflection:cell-4"
   ],
+  "exploredCellHashes": ["notebooks/03_messy.ipynb::abc123"],
   "awardLog": [
-    { "key": "mission:stab-rerun-clean", "criterion": "execution_consistency", "points": 8, "label": "Fix the flow", "ts": 1.7e9 }
+    { "key": "...::mission:stab-rerun-clean", "category": "stabilization", "xp": 8, "label": "Fix the flow", "ts": 1.7e9 }
   ],
   "reflections": [
     { "cellIndex": 4, "text": "Stratified split because classes are imbalanced.", "ts": 1.7e9 }
   ],
+  "quizAttempts": 3,
+  "quizCorrect": 2,
+  "streakDays": 1,
+  "lastActiveTs": 1.7e9
+}
+```
+
+`public_view()` returns these fields **plus derived ones** the UI renders: `level`, `rankTitle`, `xpIntoLevel`, `xpForNextLevel`, `xpToNextLevel`, `levelProgress`, `categoryTotal`. The frontend never computes the score; it renders what `public_view()` returns.
+
+Rules:
+
+- Every award key in `completedAwardKeys` is unique. The same award can't be granted twice.
+- Award keys are **namespaced per notebook** by the handlers: `"<notebookPath>::<raw key>"` (see `handlers._notebook_ns`). So a mission/quiz/reflection is earnable once *per notebook*, while XP pools into one global total. The frontend must use the same prefix when checking "already claimed" — see `api.notebookAwardPrefix`.
+- `level` is derived from `xpTotal` via `gamification._LEVEL_THRESHOLDS`; the matching title comes from `_RANK_TITLES`. Beyond the table each level costs a flat 400 XP.
+- There is no health score, baseline, or win condition.
+
+### Per-notebook metadata (frontend-owned)
+
+Stored at `metadata.flowquest` inside the `.ipynb` by `questStore.ts`. **Only two things live here:**
+
+```json
+{
+  "difficulty": "medium",
   "quizzes": {
     "<anchorCellId>::quiz:clean": {
       "slotId": "...",
       "anchorCellId": "...",
       "region": "clean",
+      "activityKind": "quiz",
       "quiz": { "question": "...", "options": ["A", "B", "C", "D"], "correctIndex": 0, "explanation": "..." },
       "selectedIndex": 0,
       "answeredCorrectly": true,
@@ -56,86 +66,44 @@ Stored at `metadata.flowquest` inside the `.ipynb`. Shape (after normalisation):
       "awardedXp": 5,
       "generatedAt": 1.7e9
     }
-  },
-  "quizAttempts": 3,
-  "quizCorrect": 2,
-  "streakDays": 1,
-  "lastActiveTs": 1.7e9,
-  "wonAt": 0.0,
-  "difficulty": "medium"
+  }
 }
 ```
 
-Rules:
-
-- Every award key in `completedAwardKeys` is unique. The same mission cannot be claimed twice.
-- Each criterion's `healthPoints[id]` is capped at its `point_budget` (see `criteria.py`).
-- `healthScore` (derived) = `baselineHealth + Σ healthPoints[id]`. The frontend never trusts a client-side score; the backend computes it from the state blob on every `public_view`.
-- Wiping (`/state/wipe`) replaces the blob with `empty_state()`. Difficulty is preserved by default.
+Quiz content is inherently tied to a notebook's cells, so it travels with the `.ipynb`. Open ("teach-back") activities additionally store `open` (prompt + rubric + hint), `openAnswer`, and `openVerdict`. Difficulty is the one per-notebook preference; it's read/written via `questStore.readDifficulty()` / `writeDifficulty()` and merged into the global state view per notebook.
 
 ### Global settings
 
-Stored at `~/.flowquest/settings.json`:
-
-```json
-{
-  "model": "meta-llama/Llama-3.1-8B-Instruct",
-  "base_url": "https://router.huggingface.co/v1",
-  "api_key": "hf_xxxxxx...",
-  "favorite_models": ["meta-llama/Llama-3.1-8B-Instruct"]
-}
-```
-
-If the file is absent, the resolver falls back to environment variables (`HF_OPENAI_BASE_URL`, `HF_OPENAI_MODEL`, `HF_OPENAI_API_KEY`) and to the workspace `.env`. The first time the user saves something via the **Settings → Global** panel, the file is created with mode `0600`.
+Stored at `~/.flowquest/settings.json` (model + base URL; mode `0600`). The **API key** prefers the OS keychain (`keyring`, service `flowquest`) when a real backend is present, falling back to plaintext in `settings.json` otherwise. If nothing is configured there, the resolver falls back to environment variables (`HF_OPENAI_BASE_URL`, `HF_OPENAI_MODEL`, `HF_OPENAI_API_KEY`, plus `OPENAI_*` / bare aliases) and the workspace `.env`. See `settings.resolve_endpoint`.
 
 ## Server routes
 
-All routes live under `/piis-assistant/` and use Jupyter's authentication.
+All routes live under `/piis-assistant/` and use Jupyter's authentication (`@web.authenticated`). Source of truth: `handlers.py::setup_handlers`.
 
 | Route | Method | Body | Returns |
 | --- | --- | --- | --- |
 | `status` | GET | — | `{ configured, model, baseUrl, envFile, settingsFile, message }` |
 | `chat` | POST | `{ prompt, history?, notebook }` | `{ response, model, title }` |
-| `analyze` | POST | `{ notebookPath, cells, state? }` | Analyzer output + `{ questState, autoCompleted }` |
-| `initialize` | POST | `{ analysis, state, notebookPath }` | `{ state, baseline, notebookPath }` |
-| `quest/init` | POST | `{ state }` | `{ state }` (normalised public view) |
-| `mission/claim` | POST | `{ state, missionId, criterionId, points, label }` | `{ state, outcome }` |
-| `explain-cell` | POST | `{ state, cell, analysis }` | `{ explanation, model, outcome, state }` |
-| `reflect/prompt` | POST | `{ cell }` | `{ question, model }` |
-| `reflect/answer` | POST | `{ state, cellIndex, text }` | `{ state, outcome }` |
-| `next-steps` | POST | `{ analysis }` | `{ suggestions, model }` |
-| `quiz/generate` | POST | `{ slot, cells }` | `{ question, options, correctIndex, explanation, model }` |
-| `quiz/answer` | POST | `{ state, slotId, region, correct }` | `{ state, outcome, correct }` |
-| `criteria` | GET | — | `{ criteria, healthTarget }` |
-| `settings` | GET | — | `{ model, baseUrl, apiKeySet, apiKeyPreview, ... }` |
+| `analyze` | POST | `{ notebookPath, cells }` | Analyzer output + `{ questState, autoCompleted }` |
+| `quest/init` | GET/POST | — | `{ state }` (global progression view) |
+| `mission/claim` (alias `quest/claim`) | POST | `{ state, notebookPath, missionId, category, xp, label }` | `{ state, outcome }` |
+| `explain-cell` | POST | `{ state, notebookPath, cell, analysis }` | `{ explanation, model, outcome, state }` |
+| `reflect/prompt` | POST | `{ cell, difficulty? }` | `{ question, model }` |
+| `reflect/answer` | POST | `{ state, notebookPath, cellIndex, text }` | `{ state, outcome }` |
+| `next-steps` | POST | `{ analysis, difficulty? }` | `{ suggestions, model }` |
+| `quiz/generate` (alias `activity/generate`) | POST | `{ slot, kind?, cells, difficulty? }` | activity payload (`choice` or `open` shaped) |
+| `quiz/answer` (alias `activity/answer`) | POST | `{ state, notebookPath, slotId, region, correct }` | `{ state, outcome, correct }` |
+| `activity/grade` | POST | `{ slotId, kind, prompt, rubric, answer, cellSource, notebookPath, difficulty? }` | `{ verdict, outcome, state }` |
+| `activities` | GET | — | `{ activities }` (kind registry) |
+| `flowy/quiz` | POST | `{ code, context?, difficulty? }` | quiz payload |
+| `flowy/quiz/answer` | POST | `{ challengeId, correct, notebookPath }` | `{ state, outcome, correct }` |
+| `settings` | GET | — | `{ model, baseUrl, apiKeySet, apiKeyPreview, apiKeyStorage, keychainAvailable, ... }` |
 | `settings/save` | POST | `{ model?, baseUrl?, apiKey?, favoriteModels? }` | Same as GET above |
-| `state/difficulty` | POST | `{ state, difficulty }` | `{ state }` |
-| `state/wipe` | POST | `{ state, keepDifficulty? }` | `{ state }` |
+| `state/wipe` | POST | `{ scope, notebookPath? }` | `{ state }` |
+
+`state/wipe` takes a `scope`: `"global"` resets all XP/levels (`progress_store.reset`); anything else clears just this notebook's idempotency keys so its checkpoints can be re-earned, leaving the global XP total intact (`progress_store.forget_notebook`).
 
 Every difficulty-aware LLM endpoint reads `state.difficulty` (or an explicit `difficulty` field) and prepends a profile-specific suffix to the system prompt. Profiles live in `ai_backend.py::_DIFFICULTY_PROFILES`.
-
-## Health criteria — the file you'll edit most often
-
-`jupyterlab_piis_assistant/criteria.py` declares seven `HealthCriterion` records:
-
-```python
-HealthCriterion(
-    id="execution_consistency",
-    label="Execution consistency",
-    description="…handed to the LLM verbatim during initialise…",
-    weight=15,            # weight in the baseline scoring
-    point_budget=20,      # cap on points the user can earn for this criterion
-    icon="⚙️",
-)
-```
-
-When you edit:
-
-- **Add or remove a criterion.** Existing notebooks store whatever was current at save time. Removed ids will simply read as `0` earned, no migration required.
-- **Change weights.** Affects only future baseline scorings. Already-initialised notebooks keep their stored `baselineHealth` until they re-initialise.
-- **Change `point_budget`.** New caps apply immediately to future awards and to existing values via clamping.
-
-Sum of `point_budget` ≈ 135. Keep it ≥ 110 so the user can always reach 100 regardless of baseline.
 
 ## Issue kinds the analyzer can produce
 
@@ -149,19 +117,31 @@ Sum of `point_budget` ≈ 135. Keep it ≥ 110 so the user can always reach 100 
 | `disconnected` | info | Code cell with no incoming or outgoing dependency. |
 | `unused_variable` | info | Defines a name no later cell reads. |
 
-Mission generation in `generate_missions` keys off these kinds.
+Mission generation in `analyzer.generate_missions` keys off these kinds.
+
+## Between-cell activities
+
+The analyzer emits **injection points** (`analyzer._compute_injection_points`) — anchored to a stable nbformat cell id — and `activities.py` decides what each one contains. Three kinds today:
+
+| Kind | Response shape | Graded by | XP |
+| --- | --- | --- | --- |
+| `quiz` | `choice` (MCQ) | client compares selected index with `correctIndex` | +5 correct |
+| `predict` | `choice` (MCQ) | same | +5 correct |
+| `teachback` | `open` (free text) | LLM against a short rubric (`activity/grade`) | +8 on pass |
+
+Adding a kind: one entry in `activities.ACTIVITY_SPECS` + a system prompt, teach the analyzer to emit it, and add a `CellModule` in `src/cellModules/`.
 
 ## Difficulty profiles
 
 `difficulty` ∈ `easy | medium | hard`. Each profile contributes a one-liner to the system prompt of every LLM endpoint:
 
-| Profile | Explain | Quiz | Baseline scoring |
+| Profile | Explain | Quiz | Grading |
 | --- | --- | --- | --- |
-| `easy` | Beginner-friendly, simple language. | Distinct distractors. | Generous; prefer the higher score. |
-| `medium` | Practitioner depth, < 180 words. | Plausible distractors, tests understanding. | Balanced; rewards clarity. |
-| `hard` | Senior reviewer mode, terse, edge cases. | Tempting distractors, careful reading. | Strict; penalises hidden state. |
+| `easy` | Beginner-friendly, simple language. | Distinct distractors. | Generous. |
+| `medium` | Practitioner depth, < 180 words. | Plausible distractors, tests understanding. | Balanced. |
+| `hard` | Senior reviewer mode, terse, edge cases. | Tempting distractors, careful reading. | Strict. |
 
-Edit `_DIFFICULTY_PROFILES` to tune wording or add new tiers.
+Edit `_DIFFICULTY_PROFILES` to tune wording or add new tiers. Difficulty is per notebook (stored in `metadata.flowquest`) and only affects LLM tone — it does not change XP amounts.
 
 ## Frontend life-cycle
 
@@ -169,14 +149,15 @@ For each open `NotebookPanel`, `index.ts` builds a `PanelBundle`:
 
 ```ts
 {
-  decorator,    // CellDecorator    — chips + inline panels
-  questCells,   // QuestCellRenderer — virtual quiz cells
+  decorator,    // CellDecorator     — chips + inline panels
+  questCells,   // QuestCellRenderer — virtual activity cells
   banner,       // NotebookBanner    — HUD at top of notebook
+  avatar,       // AvatarAssistant   — Flowy
   analysis,     // last AnalysisResponse from /analyze
-  state,        // last QuestState (mirrored to metadata.flowquest)
-  store,        // QuestMetadataStore — reads/writes the metadata blob
+  state,        // merged QuestState (global mirror + this notebook's difficulty)
+  store,        // QuestMetadataStore — reads/writes metadata.flowquest
   analyzeTimer  // debounced re-analysis
 }
 ```
 
-Notebook panel close → all four surfaces dispose, the metadata is flushed via `store.ensureSaved()`, and the bundle is dropped.
+XP/levels are a single in-memory `globalState` shared by all panels; `commitGlobalState` adopts a fresh server view and fans it out to every surface. Notebook panel close → all surfaces dispose, metadata is flushed via `store.ensureSaved()`, and the bundle is dropped.

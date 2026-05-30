@@ -8,7 +8,8 @@ import { CellDecorator } from './cellDecorations';
 import { NotebookBanner } from './notebookBanner';
 import { buildAnalysisPayload, describeNotebook } from './notebookContext';
 import { QuestCellRenderer } from './questCells';
-import { QuestMetadataStore, EMPTY_QUEST_STATE } from './questStore';
+import { QuestMetadataStore } from './questStore';
+import { EMPTY_QUEST_STATE } from './questState';
 import { SettingsPanel } from './settingsPanel';
 import { AssistantSidebar } from './sidebar';
 import type { AnalysisResponse, QuestState } from './types';
@@ -38,11 +39,52 @@ function activate(
 ): void {
   const bundles = new WeakMap<NotebookPanel, PanelBundle>();
   const connected = new WeakSet<NotebookPanel>();
+  // Open panels we can iterate over (WeakMap isn't iterable). Used to push the
+  // shared global progression to every notebook at once.
+  const openPanels = new Set<NotebookPanel>();
+
+  // XP + Levels are GLOBAL (user-scoped, owned by the server). A single
+  // in-memory mirror is shared by every open notebook; difficulty is the only
+  // per-notebook field, merged in per panel.
+  let globalState: QuestState = { ...EMPTY_QUEST_STATE };
 
   const currentPanel = (): NotebookPanel | null => notebookTracker.currentWidget;
-  const currentBundle = (): PanelBundle | null => {
-    const panel = currentPanel();
-    return panel ? bundles.get(panel) ?? null : null;
+
+  /** The global progression as seen by a specific notebook (adds its path +
+   * per-notebook difficulty). */
+  const mergedState = (panel: NotebookPanel): QuestState => {
+    const bundle = bundles.get(panel);
+    const difficulty = bundle?.store.readDifficulty() ?? 'medium';
+    return {
+      ...globalState,
+      notebookKey: panel.context.path,
+      notebookPath: panel.context.path,
+      difficulty
+    };
+  };
+
+  /** Re-render every open notebook's surfaces from the shared global state. */
+  const propagateGlobalState = (): void => {
+    openPanels.forEach(panel => {
+      const bundle = bundles.get(panel);
+      if (!bundle) {
+        return;
+      }
+      bundle.state = mergedState(panel);
+      bundle.banner.update(bundle.analysis, bundle.state);
+      bundle.avatar.update(bundle.analysis, bundle.state);
+      bundle.decorator.refresh(bundle.analysis, bundle.state);
+      bundle.questCells.refresh(bundle.analysis);
+    });
+    const cur = currentPanel();
+    const curBundle = cur ? bundles.get(cur) : null;
+    sidebar.updateQuestState(curBundle ? curBundle.state : { ...globalState });
+  };
+
+  /** Adopt a fresh global progression (from the server) and fan it out. */
+  const commitGlobalState = (incoming: QuestState): void => {
+    globalState = { ...incoming };
+    propagateGlobalState();
   };
 
   const sidebar = new AssistantSidebar({
@@ -68,43 +110,37 @@ function activate(
       widget.node.classList.add('flowquest-flash');
       window.setTimeout(() => widget.node.classList.remove('flowquest-flash'), 1400);
     },
-    applyState: state => {
+    applyState: state => commitGlobalState(state),
+    getState: () => {
+      const panel = currentPanel();
+      return panel ? mergedState(panel) : { ...globalState };
+    },
+    getNotebookPath: () => currentPanel()?.context.path ?? '',
+    openSettings: tab => settingsPanel.open(tab ?? 'global'),
+    saveChat: messages => {
       const panel = currentPanel();
       if (!panel) {
         return;
       }
-      const bundle = bundles.get(panel);
-      if (!bundle) {
-        return;
-      }
-      bundle.state = withPanelIdentity(state, panel);
-      bundle.store.write(bundle.state);
-      bundle.banner.update(bundle.analysis, bundle.state);
-    },
-    getState: () => {
-      const bundle = currentBundle();
-      return bundle?.state ?? { ...EMPTY_QUEST_STATE };
-    },
-    getNotebookPath: () => currentPanel()?.context.path ?? '',
-    openSettings: tab => settingsPanel.open(tab ?? 'global')
+      bundles.get(panel)?.store.writeChat(messages);
+    }
   });
 
   const settingsPanel = new SettingsPanel({
     getState: () => {
-      const bundle = currentBundle();
-      return bundle?.state ?? { ...EMPTY_QUEST_STATE };
+      const panel = currentPanel();
+      return panel ? mergedState(panel) : { ...globalState };
     },
-    applyState: state => {
+    applyState: state => commitGlobalState(state),
+    setDifficulty: level => {
       const panel = currentPanel();
       if (!panel) return;
       const bundle = bundles.get(panel);
       if (!bundle) return;
-      bundle.state = withPanelIdentity(state, panel);
-      bundle.store.write(bundle.state);
+      bundle.store.writeDifficulty(level);
+      bundle.state = mergedState(panel);
       bundle.banner.update(bundle.analysis, bundle.state);
       sidebar.updateQuestState(bundle.state);
-      bundle.decorator.refresh(bundle.analysis, bundle.state);
-      bundle.questCells.refresh(bundle.analysis);
     },
     flashToast: message => sidebar.flashToast(message)
   });
@@ -117,12 +153,15 @@ function activate(
     if (panel) {
       const bundle = bundles.get(panel);
       sidebar.updateAnalysis(bundle?.analysis ?? null);
+      sidebar.updateQuestState(bundle ? bundle.state : { ...globalState });
+      // Swap the chat thread to this notebook (only once its store is ready).
       if (bundle) {
-        sidebar.updateQuestState(bundle.state);
+        sidebar.setActiveChat(panel.context.path, bundle.store.readChat());
       }
     } else {
       sidebar.updateAnalysis(null);
-      sidebar.updateQuestState({ ...EMPTY_QUEST_STATE });
+      sidebar.updateQuestState({ ...globalState });
+      sidebar.setActiveChat('', []);
     }
   };
 
@@ -137,26 +176,19 @@ function activate(
     try {
       const bundle = bundles.get(panel);
       const payload = buildAnalysisPayload(panel);
-      const rawState = bundle?.store.readRaw() ?? {};
       const response = await apiRequest<AnalysisResponse>('piis-assistant/analyze', {
         method: 'POST',
-        body: JSON.stringify({ ...payload, state: rawState })
+        body: JSON.stringify(payload)
       });
       if (bundle) {
         bundle.analysis = response;
-        bundle.state = withPanelIdentity(response.questState, panel);
-        bundle.store.write(bundle.state);
-        bundle.decorator.refresh(response, bundle.state);
-        bundle.questCells.refresh(response);
-        bundle.banner.update(response, bundle.state);
-        bundle.avatar.update(response, bundle.state);
       }
       if (panel === currentPanel()) {
         sidebar.updateAnalysis(response);
-        if (bundle) {
-          sidebar.updateQuestState(bundle.state);
-        }
       }
+      // response.questState is the GLOBAL progression; adopt + fan out. This
+      // also refreshes this panel's analysis-dependent surfaces.
+      commitGlobalState(response.questState);
       if (force) {
         sidebar.flashToast('Scanned notebook.');
       }
@@ -205,26 +237,20 @@ function activate(
 
     void panel.context.ready.then(() => {
       const store = new QuestMetadataStore(panel);
-      // Start with empty state; the first analyze call will populate it.
-      const initialState: QuestState = { ...EMPTY_QUEST_STATE };
+      const initialState: QuestState = {
+        ...globalState,
+        notebookKey: panel.context.path,
+        notebookPath: panel.context.path,
+        difficulty: store.readDifficulty()
+      };
 
       const decorator = new CellDecorator(panel, {
         getAnalysis: () => bundles.get(panel)?.analysis ?? null,
-        getState: () => bundles.get(panel)?.state ?? { ...EMPTY_QUEST_STATE },
+        getState: () => bundles.get(panel)?.state ?? { ...globalState },
         getNotebookPath: () => panel.context.path,
-        applyState: state => {
-          const bundle = bundles.get(panel);
-          if (!bundle) {
-            return;
-          }
-          bundle.state = withPanelIdentity(state, panel);
-          bundle.store.write(bundle.state);
-          if (panel === currentPanel()) {
-            sidebar.updateQuestState(bundle.state);
-          }
-          bundle.banner.update(bundle.analysis, bundle.state);
-        },
+        applyState: state => commitGlobalState(state),
         onXpGained: (amount, category) => {
+          bundles.get(panel)?.avatar.celebrateXp(amount);
           sidebar.flashToast(`+${amount} XP · ${category}`);
         },
         openSidebar: () => {
@@ -234,20 +260,10 @@ function activate(
 
       const questCells = new QuestCellRenderer({
         getAnalysis: () => bundles.get(panel)?.analysis ?? null,
-        getState: () => bundles.get(panel)?.state ?? { ...EMPTY_QUEST_STATE },
-        applyState: state => {
-          const bundle = bundles.get(panel);
-          if (!bundle) {
-            return;
-          }
-          bundle.state = withPanelIdentity(state, panel);
-          bundle.store.write(bundle.state);
-          if (panel === currentPanel()) {
-            sidebar.updateQuestState(bundle.state);
-          }
-          bundle.banner.update(bundle.analysis, bundle.state);
-        },
+        getState: () => bundles.get(panel)?.state ?? { ...globalState },
+        applyState: state => commitGlobalState(state),
         onXpGained: (amount, category, source) => {
+          bundles.get(panel)?.avatar.celebrateXp(amount);
           sidebar.flashToast(`+${amount} XP · ${source || category}`);
         },
         getPanel: () => panel,
@@ -279,6 +295,11 @@ function activate(
           }
           panel.content.activeCellIndex = index;
           widget.node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        },
+        startPasteQuiz: snippet => {
+          app.shell.activateById(AssistantSidebar.ID);
+          sidebar.showTab('flowy');
+          void sidebar.startPasteQuiz(snippet.code);
         }
       });
 
@@ -292,6 +313,7 @@ function activate(
         store,
         analyzeTimer: null
       });
+      openPanels.add(panel);
 
       const model = panel.content.model;
       if (model) {
@@ -327,11 +349,19 @@ function activate(
       bundle?.banner.dispose();
       bundle?.avatar.dispose();
       bundles.delete(panel);
+      openPanels.delete(panel);
       if (panel === currentPanel()) {
         syncNotebookContext();
       }
     });
   };
+
+  // Hydrate the global progression from the server, then refresh surfaces.
+  void apiRequest<{ state: QuestState }>('piis-assistant/quest/init', { method: 'GET' })
+    .then(response => commitGlobalState(response.state))
+    .catch(() => {
+      /* offline / not configured — keep the empty state */
+    });
 
   notebookTracker.forEach(connectPanel);
   notebookTracker.widgetAdded.connect((_sender, panel) => {
@@ -401,14 +431,6 @@ function activate(
   palette.addItem({ command: COMMAND_ANALYZE, category: 'FlowQuest' });
   palette.addItem({ command: COMMAND_SEND_ACTIVE_CELL, category: 'FlowQuest' });
   palette.addItem({ command: COMMAND_EXPLAIN_OUTPUT, category: 'FlowQuest' });
-}
-
-function withPanelIdentity(state: QuestState, panel: NotebookPanel): QuestState {
-  return {
-    ...state,
-    notebookKey: panel.context.path,
-    notebookPath: panel.context.path
-  };
 }
 
 const plugin: JupyterFrontEndPlugin<void> = {

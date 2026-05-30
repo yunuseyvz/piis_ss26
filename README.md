@@ -1,6 +1,6 @@
 # FlowQuest
 
-A gamified, context-aware companion for JupyterLab. FlowQuest analyses your notebook, gives it a health score, and turns the journey from messy draft to clean artifact into a quest with missions, quizzes, and per-cell hints.
+A gamified, context-aware companion for JupyterLab. FlowQuest analyses your notebook and turns the learning process — exploring, understanding, stabilizing, and reflecting on your work — into a quest with XP, levels, ranks, missions, quizzes, and per-cell hints. It rewards engagement and workflow understanding, not final code correctness.
 
 This repository contains:
 
@@ -39,7 +39,7 @@ Once JupyterLab is open:
 
 1. Click the 🗺️ FlowQuest tab in the left sidebar (or the ⚙️ icon in any notebook's banner).
 2. Open the **Settings → Global** tab and enter your model, base URL, and API key. They're saved under `~/.flowquest/settings.json`.
-3. Open `examples/03_messy_on_purpose.ipynb` and press **🚀 Initialize FlowQuest** in the in-notebook banner. Mission cards appear in the sidebar; quiz cells appear below the data-loading region.
+3. Open `examples/03_messy_on_purpose.ipynb` and press **🔄 Re-scan** in the in-notebook banner (FlowQuest also scans automatically as you edit). Mission cards appear in the sidebar's Quest tab; activity cells appear between the real cells.
 
 A `.env.example` is included if you'd rather configure the LLM endpoint that way; it's read as a fallback.
 
@@ -47,14 +47,15 @@ A `.env.example` is included if you'd rather configure the LLM endpoint that way
 
 | Surface | What it shows |
 | --- | --- |
-| **In-notebook banner** | Notebook Health bar, level, mission count, region distribution, difficulty selector, settings shortcut. |
-| **Per-cell chip** | Region label (load / clean / model / …), health dot, mission star, expand button. |
+| **In-notebook banner** | Level + XP meter, rank, open-mission count, difficulty selector, settings/re-scan shortcuts. |
+| **Per-cell chip** | Region label (load / clean / model / …), issue dot, mission star, expand button. |
 | **Inline cell panel** | Issues, dependencies, Explain / Reflect buttons, mission claims for that cell. |
-| **Virtual quiz cells** | Auto-generated multiple-choice questions inserted between real cells, anchored to a stable cell id. |
-| **Sidebar** | Three tabs: Quest (health, missions, criteria), Workflow (region map, cell list, issue feed), Chat (notebook-aware LLM chat). |
-| **Settings modal** | Global model + API key, per-notebook difficulty, "wipe data" button. |
+| **Virtual activity cells** | Auto-generated quizzes, predictions, and teach-backs inserted between real cells, anchored to a stable cell id. |
+| **Sidebar** | Three tabs: Quest (XP by category, missions, next-steps), Flowy (spontaneous quizzes on pasted/active code), Chat (notebook-aware LLM chat). |
+| **Flowy avatar** | Floating companion that reacts to your progress and offers to quiz you on big pastes. |
+| **Settings modal** | Global model + API key, per-notebook difficulty, reset-progress buttons. |
 
-The whole quest state lives inside `metadata.flowquest` in the `.ipynb` itself, so progress travels with the file.
+XP and levels are **global** to you (server-side, at `~/.flowquest/progress.json`) and accumulate across every notebook. The only per-notebook state is the difficulty preference and generated quizzes, which live in `metadata.flowquest` and travel with the `.ipynb`.
 
 ## Documentation map
 
@@ -80,7 +81,8 @@ The whole quest state lives inside `metadata.flowquest` in the `.ipynb` itself, 
 │       ├── package.json          Frontend build
 │       └── setup.py              Python packaging
 ├── scripts/
-│   └── build_examples.py         Regenerates the example notebooks
+│   ├── build_examples.py         Regenerates the example notebooks
+│   └── setup.sh                  Local bootstrap: build + install the extension into .venv
 ├── pyproject.toml                Workspace deps (managed with uv)
 └── README.md                     This file
 ```

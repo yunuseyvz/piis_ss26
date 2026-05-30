@@ -2,7 +2,7 @@
 
 Takes the serialized notebook payload sent by the frontend and produces:
 - per-cell workflow classification and dependency edges
-- notebook health score and issues
+- detected workflow issues
 - auto-generated missions grounded in actual problems
 
 The goal is not perfect static analysis but useful, grounded signal for the
@@ -17,6 +17,8 @@ import hashlib
 import re
 from dataclasses import dataclass, field, asdict
 from typing import Any, Iterable
+
+from .activities import ACTIVITY_SPECS, KIND_QUIZ, activity_spec
 
 
 # ---------------------------------------------------------------------------
@@ -155,11 +157,11 @@ REGION_ICONS = {
 }
 
 
-# Regions that should trigger a quiz after their last cell.
-_QUIZ_REGIONS: tuple[str, ...] = ("load", "clean", "explore", "visualize", "model")
+# Regions that should trigger a between-cell activity after their last cell.
+_ACTIVITY_REGIONS: tuple[str, ...] = ("load", "clean", "explore", "visualize", "model")
 
 
-_QUIZ_TOPICS: dict[str, str] = {
+_ACTIVITY_TOPICS: dict[str, str] = {
     "load": "how this cell obtains data",
     "clean": "how this cell transforms or filters data",
     "explore": "what this cell reveals about the data",
@@ -227,12 +229,10 @@ class Mission:
     kind: str  # exploration | understanding | stabilization | reflection
     title: str
     description: str
-    xp: int  # legacy name; treated as healthPoints by the new system
+    xp: int
     cell_indices: list[int]
     completion_hint: str
     auto_completable: bool = False
-    criterion_id: str = "workflow_clarity"
-    health_points: int = 0
 
 
 @dataclass
@@ -240,9 +240,6 @@ class AnalysisResult:
     cells: list[CellAnalysis]
     issues: list[dict[str, Any]]
     region_counts: dict[str, int]
-    health: int
-    health_label: str
-    health_breakdown: dict[str, int]
     missions: list[Mission]
     summary: dict[str, Any]
     injection_points: list[dict[str, Any]] = field(default_factory=list)
@@ -371,7 +368,7 @@ def _classify_region(cell_type: str, source: str) -> str:
     if not score:
         # Heuristic: short cells that only print/display are output cells.
         if re.fullmatch(r"[\w.()\"'\[\], \n]+", stripped) and (
-            stripped.startswith("print(") or stripped.endswith(")") and len(stripped) < 80
+            stripped.startswith("print(") or (stripped.endswith(")") and len(stripped) < 80)
         ):
             return "output"
         return "other"
@@ -597,25 +594,6 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
                 )
             )
 
-    # Health score.
-    penalties = {"error": 15, "warn": 7, "info": 2}
-    breakdown = {"error": 0, "warn": 0, "info": 0}
-    total_penalty = 0
-    for analysis in analyses:
-        for issue in analysis.issues:
-            breakdown[issue.severity] = breakdown.get(issue.severity, 0) + 1
-            total_penalty += penalties.get(issue.severity, 0)
-
-    raw_health = max(0, 100 - total_penalty)
-    if raw_health >= 85:
-        label = "Thriving"
-    elif raw_health >= 65:
-        label = "Stable"
-    elif raw_health >= 40:
-        label = "Fragile"
-    else:
-        label = "Critical"
-
     # Region counts.
     region_counts: dict[str, int] = {name: 0 for name in REGION_ORDER}
     for analysis in analyses:
@@ -652,9 +630,6 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
         cells=analyses,
         issues=flat_issues,
         region_counts=region_counts,
-        health=raw_health,
-        health_label=label,
-        health_breakdown=breakdown,
         missions=missions,
         summary=summary,
         injection_points=injection_points,
@@ -674,17 +649,18 @@ def _compute_injection_points(cells: list[CellAnalysis]) -> list[dict[str, Any]]
         below. Using the id (not the index) makes the anchor survive cell
         insertions and deletions.
       - ``anchorCellIndex``: current index of that cell (for UX / ordering).
-      - ``kind``: ``"quiz"`` for now; room for ``"reflection_prompt"``,
-        ``"checkpoint"`` later.
+      - ``kind``: which between-cell activity to offer (``quiz``, ``predict``,
+        ``teachback`` — see :mod:`activities`). Varied across the notebook so
+        the learner meets a mix of intelligent tasks.
       - ``topic``: short human description of why the slot exists.
       - ``region``: the region of the anchor cell.
-      - ``slotId``: stable id of the form ``<anchorCellId>::quiz:region`` so a
+      - ``slotId``: stable id of the form ``<anchorCellId>::<kind>:region`` so a
         given spot only gets one virtual cell.
     """
 
     points: list[dict[str, Any]] = []
 
-    # Trigger a quiz after the last cell of each interesting region run.
+    # Trigger an activity after the last cell of each interesting region run.
     runs: list[tuple[str, int, int]] = []  # (region, start_index, end_index)
     current: tuple[str, int, int] | None = None
     for cell in cells:
@@ -694,7 +670,7 @@ def _compute_injection_points(cells: list[CellAnalysis]) -> list[dict[str, Any]]
                 current = None
             continue
         region = cell.region
-        if region not in _QUIZ_REGIONS:
+        if region not in _ACTIVITY_REGIONS:
             if current is not None:
                 runs.append(current)
                 current = None
@@ -709,28 +685,49 @@ def _compute_injection_points(cells: list[CellAnalysis]) -> list[dict[str, Any]]
     if current is not None:
         runs.append(current)
 
-    for region, _start, end in runs:
+    for run_index, (region, _start, end) in enumerate(runs):
         anchor = cells[end]
         if not anchor.source_preview.strip():
             continue
-        slot_id = f"{anchor.cell_id}::quiz:{region}"
+        kind = _activity_kind_for(region, run_index)
+        spec = activity_spec(kind)
+        slot_id = f"{anchor.cell_id}::{kind}:{region}"
         points.append(
             {
                 "slotId": slot_id,
-                "kind": "quiz",
+                "kind": kind,
+                "kindLabel": spec["label"],
+                "response": spec["response"],
                 "region": region,
-                "topic": _QUIZ_TOPICS.get(region, "this part of the workflow"),
+                "topic": _ACTIVITY_TOPICS.get(region, "this part of the workflow"),
                 "anchorCellId": anchor.cell_id,
                 "anchorCellIndex": anchor.index,
                 "contextCellIds": [
                     cells[i].cell_id
                     for i in range(max(0, end - 2), min(len(cells), end + 1))
                 ],
-                "kindIcon": "🎯",
+                "kindIcon": spec["icon"],
             }
         )
 
     return points
+
+
+def _activity_kind_for(region: str, run_index: int) -> str:
+    """Pick a between-cell activity kind for a region run.
+
+    Deterministic (so the same notebook yields stable slots across re-scans):
+    rotates through the kinds whose ``regions`` include this region, offset by
+    the run index so a notebook with several runs gets a varied mix.
+    """
+    eligible = [
+        spec["kind"]
+        for spec in ACTIVITY_SPECS.values()
+        if region in spec.get("regions", ())
+    ]
+    if not eligible:
+        return KIND_QUIZ
+    return eligible[run_index % len(eligible)]
 
 
 # ---------------------------------------------------------------------------
@@ -742,9 +739,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
     missions: list[Mission] = []
 
     def add(mission: Mission) -> None:
-        # Default health_points to xp when the builder didn't set it explicitly.
-        if mission.health_points == 0:
-            mission.health_points = mission.xp
         missions.append(mission)
 
     issues_by_kind: dict[str, list[dict[str, Any]]] = {}
@@ -766,8 +760,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 cell_indices=cell_indices,
                 completion_hint="When the unused variables are gone (or consumed), this mission auto-clears.",
                 auto_completable=True,
-                criterion_id="workflow_clarity",
-                health_points=6,
             )
         )
 
@@ -787,8 +779,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 cell_indices=cell_indices,
                 completion_hint="This clears once every code cell has an increasing execution number.",
                 auto_completable=True,
-                criterion_id="execution_consistency",
-                health_points=8,
             )
         )
 
@@ -806,8 +796,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 cell_indices=cell_indices,
                 completion_hint="Auto-clears once the duplicates are consolidated.",
                 auto_completable=True,
-                criterion_id="workflow_clarity",
-                health_points=5,
             )
         )
 
@@ -825,8 +813,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 xp=5,
                 cell_indices=cell_indices,
                 completion_hint="Use the Explain action on each orphan cell to inspect it.",
-                criterion_id="workflow_clarity",
-                health_points=5,
             )
         )
 
@@ -845,8 +831,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 cell_indices=[],
                 completion_hint="Add any plt/sns/px cell to complete this mission.",
                 auto_completable=True,
-                criterion_id="analysis_depth",
-                health_points=8,
             )
         )
 
@@ -872,8 +856,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                     cell_indices=model_cells,
                     completion_hint="Add any score/accuracy/classification_report call.",
                     auto_completable=True,
-                    criterion_id="model_rigor",
-                    health_points=10,
                 )
             )
 
@@ -896,9 +878,7 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 "Open the reflect action on it and write in your own words why this choice belongs in the workflow.",
                 xp=6,
                 cell_indices=[reflection_target.index],
-                completion_hint="Use the Reflect action on the highlighted cell and claim the points.",
-                criterion_id="reader_understanding",
-                health_points=6,
+                completion_hint="Use the Reflect action on the highlighted cell and claim the XP.",
             )
         )
 
@@ -910,12 +890,10 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
                 id="expl-tour",
                 kind="exploration",
                 title="Take the grand tour",
-                description="Your notebook is healthy. Explore at least three different workflow regions to claim these points.",
+                description="Explore at least three different workflow regions to claim this XP.",
                 xp=5,
                 cell_indices=[0, mid_index, len(cells) - 1],
                 completion_hint="Click Explain on three different cells across the notebook.",
-                criterion_id="reader_understanding",
-                health_points=5,
             )
         )
 
@@ -929,9 +907,6 @@ def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -
 
 def result_to_dict(result: AnalysisResult) -> dict[str, Any]:
     return {
-        "health": result.health,
-        "healthLabel": result.health_label,
-        "healthBreakdown": result.health_breakdown,
         "cells": [
             {
                 "index": c.index,

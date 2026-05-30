@@ -18,7 +18,8 @@
 import { NotebookPanel } from '@jupyterlab/notebook';
 import type { Cell } from '@jupyterlab/cells';
 
-import { apiRequest, clipText, escapeHtml } from './api';
+import { apiRequest, clipText, escapeHtml, notebookAwardPrefix } from './api';
+import { renderMarkdown } from './markdown';
 import {
   errorBlockHtml,
   inlineSpinnerHtml,
@@ -148,6 +149,24 @@ export class CellDecorator {
     const panel = document.createElement('div');
     panel.className = PANEL_CLASS;
     panel.style.display = 'none';
+    // The panel lives inside the notebook DOM, where JupyterLab intercepts
+    // mouse/keyboard events to drive cell focus + command-mode shortcuts. That
+    // stops our inputs (the reflect textarea) from gaining focus / receiving
+    // keystrokes. Contain those events within the panel so its form controls
+    // behave like normal HTML.
+    const contain = (event: Event) => event.stopPropagation();
+    [
+      'mousedown',
+      'mouseup',
+      'click',
+      'dblclick',
+      'keydown',
+      'keyup',
+      'keypress',
+      'contextmenu',
+      'focusin',
+      'focusout'
+    ].forEach(type => panel.addEventListener(type, contain));
 
     // Mount chip at top of cell.node and panel after the input container.
     const inputWrapper = cell.node.querySelector('.jp-Cell-inputWrapper') ?? cell.node;
@@ -307,7 +326,7 @@ export class CellDecorator {
       } else if (entry.explainError) {
         body = renderInlineError(entry.explainError, 'retry-explain');
       } else if (entry.explanation) {
-        body = `<div class="flowquest-block">${escapeHtml(entry.explanation)}</div>`;
+        body = `<div class="flowquest-block flowquest-md">${renderMarkdown(entry.explanation)}</div>`;
       } else {
         body = `<div class="flowquest-cardHint">Get a short, contextual explanation grounded in the surrounding cells.</div>`;
       }
@@ -316,7 +335,7 @@ export class CellDecorator {
           <header class="flowquest-cellSectionHead">
             <span class="flowquest-cellSectionIcon">🔍</span>
             <span class="flowquest-cellSectionTitle">Explain this cell</span>
-            <span class="flowquest-cellSectionMeta">+2 health (first time per cell)</span>
+            <span class="flowquest-cellSectionMeta">+3 XP (first time per cell)</span>
           </header>
           ${body}
           <div class="flowquest-actionsRow">
@@ -350,7 +369,7 @@ export class CellDecorator {
           <textarea
             class="flowquest-textarea"
             data-field="reflect"
-            placeholder="Write a sentence or two. +4 health on submit."
+            placeholder="Write a sentence or two. +6 XP on submit."
           >${escapeHtml(entry.reflectText)}</textarea>
           <div class="flowquest-actionsRow">
             <button
@@ -371,7 +390,7 @@ export class CellDecorator {
           <header class="flowquest-cellSectionHead">
             <span class="flowquest-cellSectionIcon">🪞</span>
             <span class="flowquest-cellSectionTitle">Reflect</span>
-            <span class="flowquest-cellSectionMeta">+4 health on first reflection</span>
+            <span class="flowquest-cellSectionMeta">+6 XP on first reflection</span>
           </header>
           ${body}
           ${
@@ -391,9 +410,12 @@ export class CellDecorator {
     const missionHtml = missions
       .map(mission => {
         const state = this.callbacks.getState();
-        const completed = (state.completedAwardKeys ?? []).includes(`mission:${mission.id}`);
+        const awardPrefix = notebookAwardPrefix(state.notebookPath);
+        const completed = (state.completedAwardKeys ?? []).includes(
+          `${awardPrefix}mission:${mission.id}`
+        );
         const loadingThis = loadingMission(mission.id);
-        const points = mission.health_points || mission.xp;
+        const points = mission.xp;
         const claimError = entry.claimErrors.get(mission.id);
         return `
           <li class="flowquest-missionCard flowquest-mission-${escapeHtml(mission.kind)} ${
@@ -403,7 +425,7 @@ export class CellDecorator {
               <span class="flowquest-missionKind">${escapeHtml(
                 MISSION_KIND_ICON[mission.kind] ?? '✨'
               )} ${escapeHtml(mission.kind)}</span>
-              <span class="flowquest-missionXp">+${points} health</span>
+              <span class="flowquest-missionXp">+${points} XP</span>
             </div>
             <div class="flowquest-missionTitle">${escapeHtml(mission.title)}</div>
             <div class="flowquest-missionDesc">${escapeHtml(mission.description)}</div>
@@ -418,7 +440,7 @@ export class CellDecorator {
                 class="flowquest-btn flowquest-btn-primary"
                 data-action="claim"
                 data-mission="${escapeHtml(mission.id)}"
-                data-criterion="${escapeHtml(mission.criterion_id || 'workflow_clarity')}"
+                data-category="${escapeHtml(mission.kind)}"
                 data-points="${points}"
                 data-label="${escapeHtml(mission.title)}"
                 ${completed || loadingThis ? 'disabled' : ''}
@@ -507,6 +529,12 @@ export class CellDecorator {
           submitBtn.disabled = entry.reflectText.trim().length === 0;
         }
       });
+      // Keep JupyterLab's command-mode keyboard shortcuts from swallowing
+      // keystrokes meant for this injected textarea.
+      const stop = (event: Event) => event.stopPropagation();
+      textarea.addEventListener('keydown', stop);
+      textarea.addEventListener('keypress', stop);
+      textarea.addEventListener('keyup', stop);
     }
 
     entry.panel.querySelectorAll<HTMLButtonElement>('[data-action]').forEach(button => {
@@ -540,10 +568,10 @@ export class CellDecorator {
     }
     if (action === 'claim') {
       const missionId = button.dataset.mission ?? '';
-      const criterionId = button.dataset.criterion ?? 'workflow_clarity';
+      const category = button.dataset.category ?? 'exploration';
       const points = Number(button.dataset.points ?? '0');
       const label = button.dataset.label ?? missionId;
-      await this.claim(entry, missionId, criterionId, points, label);
+      await this.claim(entry, missionId, category, points, label);
       return;
     }
     if (action === 'retry-explain') {
@@ -574,6 +602,7 @@ export class CellDecorator {
         method: 'POST',
         body: JSON.stringify({
           state: this.callbacks.getState(),
+          notebookPath: this.callbacks.getNotebookPath(),
           cell: {
             index: entry.cellIndex,
             region: entry.analysis?.region ?? 'other',
@@ -583,8 +612,8 @@ export class CellDecorator {
         })
       });
       entry.explanation = response.explanation || 'No explanation returned.';
-      if (response.outcome?.granted && response.outcome.pointsAwarded) {
-        this.callbacks.onXpGained(response.outcome.pointsAwarded, 'reader_understanding', 'Explain cell');
+      if (response.outcome?.granted && response.outcome.xpAwarded) {
+        this.callbacks.onXpGained(response.outcome.xpAwarded, 'exploration', 'Explain cell');
       }
       if (response.state) {
         this.callbacks.applyState(response.state);
@@ -610,7 +639,8 @@ export class CellDecorator {
             index: entry.cellIndex,
             region: entry.analysis?.region ?? 'other',
             source: clipText(source, 2500)
-          }
+          },
+          difficulty: this.callbacks.getState().difficulty
         })
       });
       entry.reflectQuestion = response.question || 'What could go wrong with this cell?';
@@ -634,14 +664,15 @@ export class CellDecorator {
         method: 'POST',
         body: JSON.stringify({
           state: this.callbacks.getState(),
+          notebookPath: this.callbacks.getNotebookPath(),
           cellIndex: entry.cellIndex,
           text
         })
       });
       if (response.outcome?.granted) {
         this.callbacks.onXpGained(
-          response.outcome.pointsAwarded ?? 0,
-          'reader_understanding',
+          response.outcome.xpAwarded ?? 0,
+          'reflection',
           'Reflection'
         );
       }
@@ -659,7 +690,7 @@ export class CellDecorator {
   private async claim(
     entry: CellEntry,
     missionId: string,
-    criterionId: string,
+    category: string,
     points: number,
     label: string
   ): Promise<void> {
@@ -671,16 +702,17 @@ export class CellDecorator {
         method: 'POST',
         body: JSON.stringify({
           state: this.callbacks.getState(),
+          notebookPath: this.callbacks.getNotebookPath(),
           missionId,
-          criterionId,
-          points,
+          category,
+          xp: points,
           label
         })
       });
       if (response.outcome?.granted) {
         this.callbacks.onXpGained(
-          response.outcome.pointsAwarded ?? 0,
-          response.outcome.criterion ?? criterionId,
+          response.outcome.xpAwarded ?? 0,
+          response.outcome.category ?? category,
           missionId
         );
       }
