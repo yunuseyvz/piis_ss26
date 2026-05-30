@@ -116,6 +116,9 @@ export class AvatarAssistant {
   private transientMood: AvatarMood | null = null;
   private transientTimer: number | null = null;
   private pasteListener: ((event: ClipboardEvent) => void) | null = null;
+  /** Cursor-tracking tilt handlers, kept so we can detach them on dispose. */
+  private tiltMoveListener: ((event: MouseEvent) => void) | null = null;
+  private tiltLeaveListener: (() => void) | null = null;
   /** The most recent significant paste, available for a tap-to-quiz. */
   private lastPaste: PastedSnippet | null = null;
   /** Unique suffix for SVG gradient ids so multiple open notebooks don't
@@ -131,6 +134,7 @@ export class AvatarAssistant {
     this.panel.disposed.connect(() => this.dispose());
     this.panel.content.modelChanged.connect(() => this.attach());
     this.installPasteListener();
+    this.installTiltTracking();
 
     // Auto-show a tip every 45 seconds when idle
     this.startTipCycle();
@@ -245,6 +249,14 @@ export class AvatarAssistant {
       this.panel.content.node.removeEventListener('paste', this.pasteListener, true);
       this.pasteListener = null;
     }
+    if (this.tiltMoveListener) {
+      this.avatarEl?.removeEventListener('mousemove', this.tiltMoveListener);
+      this.tiltMoveListener = null;
+    }
+    if (this.tiltLeaveListener) {
+      this.avatarEl?.removeEventListener('mouseleave', this.tiltLeaveListener);
+      this.tiltLeaveListener = null;
+    }
     this.host.remove();
   }
 
@@ -323,6 +335,56 @@ export class AvatarAssistant {
     this.pasteListener = listener;
     // Capture phase so we observe it before CodeMirror consumes it.
     this.panel.content.node.addEventListener('paste', listener, true);
+  }
+
+  /**
+   * Make Flowy tilt toward the cursor in 3D while hovered. The rotation is
+   * applied to the HTML visual layer (a child of the `.flowquest-avatarBody`
+   * perspective container), so the sprite plane actually foreshortens as it
+   * turns — real depth, not a flat horizontal squash.
+   *
+   * The pointer offset from the avatar centre maps to pitch (rotateX) and yaw
+   * (rotateY); CSS eases each change so motion stays smooth, and a CSS class
+   * toggles the resting idle animation off while the cursor drives the tilt.
+   */
+  private installTiltTracking(): void {
+    const maxTilt = 22; // degrees at the edge of the hover region
+
+    const onMove = (event: MouseEvent): void => {
+      const visual = this.visualLayer;
+      const avatar = this.avatarEl;
+      if (!visual || !avatar) {
+        return;
+      }
+      const rect = avatar.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      // Normalise pointer position to [-1, 1] on each axis.
+      const nx = Math.max(-1, Math.min(1, (event.clientX - cx) / (rect.width / 2)));
+      const ny = Math.max(-1, Math.min(1, (event.clientY - cy) / (rect.height / 2)));
+      // Yaw follows horizontal cursor; pitch is inverted so the top leans back
+      // when the cursor is above (like a face looking up at you).
+      const yaw = nx * maxTilt;
+      const pitch = -ny * maxTilt;
+      this.host.classList.add('is-tilting');
+      visual.style.transform = `rotateX(${pitch.toFixed(2)}deg) rotateY(${yaw.toFixed(2)}deg)`;
+    };
+
+    const onLeave = (): void => {
+      const visual = this.visualLayer;
+      this.host.classList.remove('is-tilting');
+      if (visual) {
+        visual.style.transform = '';
+      }
+    };
+
+    this.tiltMoveListener = onMove;
+    this.tiltLeaveListener = onLeave;
+    const avatar = this.avatarEl;
+    if (avatar) {
+      avatar.addEventListener('mousemove', onMove);
+      avatar.addEventListener('mouseleave', onLeave);
+    }
   }
 
   private inferMoodFromState(): AvatarMood {

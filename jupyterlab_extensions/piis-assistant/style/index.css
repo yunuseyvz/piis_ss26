@@ -2166,22 +2166,114 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   height: 100%;
   display: grid;
   place-items: center;
-  /* Perspective gives the inner 3D tilt real depth. */
-  perspective: 320px;
-  transition: transform 0.2s ease;
+  /* Perspective gives the inner tilt real depth. Lives here (not on the host)
+     so the visual layer, a direct child, foreshortens as it rotates. */
+  perspective: 340px;
+  transform-style: preserve-3d;
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Smooth lift + scale on hover. Applied to the body (transitioned) rather than
+   the avatar (which runs the resting float animation), so the two never fight
+   and the entrance eases in instead of snapping. */
+.flowquest-avatar:hover .flowquest-avatarBody {
+  transform: translateY(-4px) scale(1.08);
 }
 
 .flowquest-avatar:active .flowquest-avatarBody {
   transform: scale(0.94);
 }
 
-/* Visual layer stacks the current + outgoing sprite for a crossfade. */
+/* ---- fancier hover: depth tilt, glow halo, and an orbiting sparkle ------ */
+
+/* Deepen the drop-shadow on hover. Transitioned on `filter` so it doesn't
+   collide with the transform-based float animation on the same element. */
+.flowquest-avatar {
+  transition: filter 0.35s ease;
+}
+
+.flowquest-avatar:hover {
+  filter: drop-shadow(0 14px 18px rgba(16, 36, 58, 0.34));
+}
+
+/* Soft radial glow halo behind the sprite. The avatar's `filter` creates a
+   stacking context, so this z-index:-1 layer sits behind the creature but in
+   front of the page. Fades in smoothly; pulses once warmed up. */
+.flowquest-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(77, 198, 255, 0.5),
+    rgba(180, 139, 255, 0.28) 45%,
+    transparent 70%
+  );
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.flowquest-avatar:hover::before {
+  opacity: 1;
+  transform: scale(1);
+  animation: flowquest-avatarGlowPulse 2.6s ease-in-out 0.35s infinite;
+}
+
+@keyframes flowquest-avatarGlowPulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+/* A single sparkle that orbits the mascot on hover. Positioned at the avatar
+   centre (margin offset) so `rotate() translateX()` swings it around. */
+.flowquest-avatar::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 50%;
+  background: var(--fq-accent-3);
+  box-shadow: 0 0 6px var(--fq-accent-3), 0 0 12px var(--fq-accent-3);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.flowquest-avatar:hover::after {
+  opacity: 1;
+  animation: flowquest-avatarOrbit 2.6s linear infinite;
+}
+
+@keyframes flowquest-avatarOrbit {
+  from { transform: rotate(0deg) translateX(40px); }
+  to { transform: rotate(360deg) translateX(40px); }
+}
+
+/* Visual layer stacks the current + outgoing sprite for a crossfade. It also
+   carries the cursor-driven 3D tilt (set inline from avatarAssistant.ts). The
+   short eased transition makes the tilt follow the pointer smoothly and ease
+   back to rest on mouse-leave. */
 .flowquest-avatarVisual {
   position: relative;
   width: 58px;
   height: 64px;
   display: grid;
   place-items: center;
+  transform-style: preserve-3d;
+  transition: transform 0.16s ease-out;
+}
+
+/* While the cursor is driving the tilt, hand control fully to the inline
+   transform (the resting transition still smooths each frame). */
+.flowquest-avatar.is-tilting .flowquest-avatarVisual {
+  transition: transform 0.08s linear;
 }
 
 .flowquest-avatarSprite {
@@ -2239,15 +2331,12 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   50% { transform: rotate(2.5deg); }
 }
 
-/* On hover the whole creature swings toward the cursor in 3D. */
+/* On hover, the cursor-driven 3D tilt on the visual layer owns the motion, so
+   the creature's resting auto-tilt steps aside (keeping just the gentle bob).
+   The old flat rotateY "spin" was removed — it squashed the symmetric sprite
+   instead of reading as depth. */
 .flowquest-avatar:hover .flowquest-avatarCreature {
-  animation: flowquest-avatarBob 1.6s ease-in-out infinite,
-             flowquest-avatarSpin3d 2.4s ease-in-out infinite;
-}
-
-@keyframes flowquest-avatarSpin3d {
-  0%, 100% { transform: rotateY(-16deg) rotate(-2deg); }
-  50% { transform: rotateY(16deg) rotate(2deg); }
+  animation: flowquest-avatarBob 1.6s ease-in-out infinite;
 }
 
 /* Eyes blink occasionally. */
@@ -2417,19 +2506,50 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
 }
 
 .flowquest-avatar:hover .flowquest-avatarRing {
-  opacity: 0.5;
+  opacity: 0.6;
   transform: scale(1);
+  border-color: var(--fq-accent);
   animation: flowquest-ringPulse 1.5s ease-out infinite;
+}
+
+/* A second ripple, offset in time, for a layered radar-ping effect. */
+.flowquest-avatar:hover .flowquest-avatarRing::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--fq-accent-3);
+  opacity: 0;
+  animation: flowquest-ringPulse 1.5s ease-out 0.75s infinite;
 }
 
 @keyframes flowquest-ringPulse {
   0% {
     transform: scale(1);
-    opacity: 0.5;
+    opacity: 0.6;
   }
   100% {
-    transform: scale(1.25);
+    transform: scale(1.45);
     opacity: 0;
+  }
+}
+
+/* Respect users who prefer reduced motion: keep the static glow/lift but drop
+   the looping pulses, orbit, ripples, and the cursor-driven tilt motion. */
+@media (prefers-reduced-motion: reduce) {
+  .flowquest-avatar,
+  .flowquest-avatar:hover,
+  .flowquest-avatar:hover .flowquest-avatarCreature,
+  .flowquest-avatar:hover::before,
+  .flowquest-avatar:hover::after,
+  .flowquest-avatar:hover .flowquest-avatarRing,
+  .flowquest-avatar:hover .flowquest-avatarRing::after {
+    animation: none;
+  }
+  .flowquest-avatarVisual,
+  .flowquest-avatar.is-tilting .flowquest-avatarVisual {
+    transform: none !important;
+    transition: none;
   }
 }
 
