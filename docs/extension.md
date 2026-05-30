@@ -48,7 +48,7 @@ Rules:
 
 ### Per-notebook metadata (frontend-owned)
 
-Stored at `metadata.flowquest` inside the `.ipynb` by `questStore.ts`. **Only two things live here:**
+Stored at `metadata.flowquest` inside the `.ipynb` by `questStore.ts`. **Three things live here** — the data that is genuinely per-notebook:
 
 ```json
 {
@@ -66,11 +66,19 @@ Stored at `metadata.flowquest` inside the `.ipynb` by `questStore.ts`. **Only tw
       "awardedXp": 5,
       "generatedAt": 1.7e9
     }
-  }
+  },
+  "chat": [
+    { "role": "user", "content": "Explain the active cell", "meta": "...", "includeInHistory": true },
+    { "role": "assistant", "content": "...", "meta": "Model: ...", "includeInHistory": true }
+  ]
 }
 ```
 
-Quiz content is inherently tied to a notebook's cells, so it travels with the `.ipynb`. Open ("teach-back") activities additionally store `open` (prompt + rubric + hint), `openAnswer`, and `openVerdict`. Difficulty is the one per-notebook preference; it's read/written via `questStore.readDifficulty()` / `writeDifficulty()` and merged into the global state view per notebook.
+- **`difficulty`** — the per-notebook difficulty preference; read/written via `questStore.readDifficulty()` / `writeDifficulty()` and merged into the global state view per notebook.
+- **`quizzes`** — generated activity content + answers, anchored to cells. Open ("teach-back") activities additionally store `open` (prompt + rubric + hint), `openAnswer`, and `openVerdict`.
+- **`chat`** — the Flowy chat transcript for this notebook (last 50 turns). The sidebar swaps the visible thread when the active notebook changes (`sidebar.setActiveChat`) and persists after each exchange via `questStore.writeChat()`.
+
+All three are inherently tied to a notebook, so they travel with the `.ipynb`. Progression does not.
 
 ### Global settings
 

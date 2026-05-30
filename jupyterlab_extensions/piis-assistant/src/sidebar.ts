@@ -56,6 +56,7 @@ export interface SidebarCallbacks {
   getState: () => QuestState;
   getNotebookPath: () => string;
   openSettings: (tab?: 'global' | 'notebook') => void;
+  openHandbook: () => void;
   /** Persist the chat transcript into the active notebook's metadata. */
   saveChat: (messages: ConversationMessage[]) => void;
 }
@@ -259,6 +260,7 @@ export class AssistantSidebar extends Widget {
             this._status.configured ? 'live' : 'missing'
           )}</span>
           <span class="flowquest-pill flowquest-pill-muted">${xp} XP</span>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="handbook" title="Open the FlowQuest handbook">📖</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="settings" title="Settings">⚙️</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="refresh">↻</button>
         </div>
@@ -268,7 +270,73 @@ export class AssistantSidebar extends Widget {
         <div class="flowquest-levelMeterLabel">${
           toNext > 0 ? `${toNext} XP to level ${level + 1}` : `Level ${level}`
         }</div>
+        ${this.renderCategoryChart()}
       </header>
+    `;
+  }
+
+  /** Donut chart of XP distribution across the four categories (global). */
+  private renderCategoryChart(): string {
+    const state = this._questState ?? EMPTY_QUEST_STATE;
+    const cats: Array<{ key: MissionKind; label: string; color: string }> = [
+      { key: 'exploration', label: 'Exploration', color: 'var(--fq-exploration)' },
+      { key: 'understanding', label: 'Understanding', color: 'var(--fq-understanding)' },
+      { key: 'stabilization', label: 'Stabilization', color: 'var(--fq-stabilization)' },
+      { key: 'reflection', label: 'Reflection', color: 'var(--fq-reflection)' }
+    ];
+    const total = cats.reduce((sum, cat) => sum + (state.xpByCategory?.[cat.key] ?? 0), 0);
+
+    // Build the donut arcs. Each segment is a circle whose visible dash spans
+    // its share of the ring; dashoffset shifts it to sit after the previous
+    // segments. The <g> rotation makes 0% start at the top (12 o'clock).
+    let cumulative = 0;
+    const segments = cats
+      .map(cat => {
+        const value = state.xpByCategory?.[cat.key] ?? 0;
+        const pct = total > 0 ? (value / total) * 100 : 0;
+        if (pct <= 0) {
+          return '';
+        }
+        const seg = `<circle class="flowquest-donutSeg" cx="18" cy="18" r="15.915" fill="none"
+          stroke="${cat.color}" stroke-width="4.5"
+          stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}"
+          stroke-dashoffset="${(-cumulative).toFixed(2)}" />`;
+        cumulative += pct;
+        return seg;
+      })
+      .join('');
+
+    const donut = `
+      <svg class="flowquest-donut" viewBox="0 0 36 36" role="img" aria-label="XP by category">
+        <g transform="rotate(-90 18 18)">
+          <circle class="flowquest-donutTrack" cx="18" cy="18" r="15.915" fill="none" stroke-width="4.5" />
+          ${segments}
+        </g>
+      </svg>
+    `;
+
+    const legend = cats
+      .map(cat => {
+        const value = state.xpByCategory?.[cat.key] ?? 0;
+        const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+        return `
+          <div class="flowquest-donutLegendItem">
+            <span class="flowquest-donutSwatch" style="background:${cat.color}"></span>
+            <span class="flowquest-donutLegendPct">${pct}%</span>
+            <span class="flowquest-donutLegendLabel">${escapeHtml(cat.label)}</span>
+          </div>
+        `;
+      })
+      .join('');
+
+    return `
+      <div class="flowquest-categoryChart" title="XP distribution across categories (global)">
+        <div class="flowquest-donutWrap">
+          ${donut}
+          <span class="flowquest-donutCenter">XP</span>
+        </div>
+        <div class="flowquest-donutLegend">${legend}</div>
+      </div>
     `;
   }
 
@@ -317,32 +385,6 @@ export class AssistantSidebar extends Widget {
       .map(mission => this.renderMissionCard(mission, isMissionClaimed(mission.id)))
       .join('');
 
-    const cats: Array<{ key: MissionKind; label: string; icon: string }> = [
-      { key: 'exploration', label: 'Exploration', icon: '🧭' },
-      { key: 'understanding', label: 'Understanding', icon: '🧠' },
-      { key: 'stabilization', label: 'Stabilization', icon: '🛠️' },
-      { key: 'reflection', label: 'Reflection', icon: '🪞' }
-    ];
-    const categoryTotal = cats.reduce(
-      (sum, cat) => sum + (state.xpByCategory?.[cat.key] ?? 0),
-      0
-    );
-    const categoryHtml = cats
-      .map(cat => {
-        const value = state.xpByCategory?.[cat.key] ?? 0;
-        const pct = categoryTotal > 0 ? Math.round((value / categoryTotal) * 100) : 0;
-        return `
-          <div class="flowquest-xpCard flowquest-xpCard-${cat.key}">
-            <span class="flowquest-xpCardIcon">${cat.icon}</span>
-            <div>
-              <div class="flowquest-xpCardValue">${pct}%</div>
-              <div class="flowquest-xpCardLabel">${escapeHtml(cat.label)}</div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-
     const awardLogHtml = (state.awardLog ?? [])
       .slice(-8)
       .reverse()
@@ -358,16 +400,6 @@ export class AssistantSidebar extends Widget {
 
     return `
       <section class="flowquest-tabPanel">
-        <div class="flowquest-card">
-          <div class="flowquest-cardHead">
-            <div>
-              <div class="flowquest-eyebrow">XP by category</div>
-              <div class="flowquest-dim">Distribution of XP categories</div>
-            </div>
-          </div>
-          <div class="flowquest-xpGrid">${categoryHtml}</div>
-        </div>
-
         <div class="flowquest-card">
           <div class="flowquest-cardHead">
             <div>
@@ -754,6 +786,10 @@ export class AssistantSidebar extends Widget {
         }
         if (action === 'settings') {
           this.callbacks.openSettings('global');
+          return;
+        }
+        if (action === 'handbook') {
+          this.callbacks.openHandbook();
           return;
         }
         if (action === 'analyze') {

@@ -16,6 +16,7 @@ interface BannerCallbacks {
   openSidebar: (tab?: 'quest' | 'chat') => void;
   rescan: () => Promise<void>;
   openSettings: (tab?: 'global' | 'notebook') => void;
+  openHandbook: () => void;
 }
 
 export class NotebookBanner {
@@ -125,6 +126,12 @@ export class NotebookBanner {
           <button
             type="button"
             class="flowquest-bannerIconBtn"
+            data-action="open-handbook"
+            title="FlowQuest handbook"
+          >📖</button>
+          <button
+            type="button"
+            class="flowquest-bannerIconBtn"
             data-action="open-settings"
             title="FlowQuest settings"
           >⚙️</button>
@@ -155,6 +162,10 @@ export class NotebookBanner {
         }
         if (action === 'open-settings') {
           this.callbacks.openSettings('global');
+          return;
+        }
+        if (action === 'open-handbook') {
+          this.callbacks.openHandbook();
           return;
         }
         if (action === 'open-difficulty') {

@@ -49,7 +49,7 @@ FlowQuest is a JupyterLab extension. The frontend (TypeScript) draws several sur
 | --- | --- | --- | --- |
 | `~/.flowquest/progress.json` | XP total, XP by category, level (derived), award log, reflections, explored-cell hashes, quiz tallies, idempotency keys | **Global** — per user, across every notebook | Server (`progress_store.py`) |
 | `~/.flowquest/settings.json` (+ OS keychain) | Model, base URL, API key, favorite models | Per user | Server (`settings.py`) |
-| `notebook.metadata.flowquest` | `difficulty` + generated `quizzes` | Per notebook. Travels with the `.ipynb`. | Frontend (`questStore.ts`) |
+| `notebook.metadata.flowquest` | `difficulty` + generated `quizzes` + per-notebook `chat` transcript | Per notebook. Travels with the `.ipynb`. | Frontend (`questStore.ts`) |
 
 XP and levels are **global and server-owned**: a level reflects your whole journey, not one file, and the frontend never computes the score. Idempotency keys are namespaced per notebook by the handlers (`"<notebookPath>::<raw key>"`) so the same mission/quiz/reflection can be earned **once per notebook** while XP pools into one global total.
 
@@ -94,6 +94,179 @@ Every mutation follows the same shape: **state in → pure mutation → new stat
 ```
 
 There is no health score, no baseline, and no win condition. Levels only go up.
+
+### XP categories — what feeds which bucket
+
+XP is split across four named buckets (`gamification.XP_CATEGORIES`):
+`exploration`, `understanding`, `stabilization`, `reflection`. They mirror the
+project's pedagogy. Mechanically they are **purely additive labels**: every
+award adds its amount to **both** `xpTotal` *and* one `xpByCategory[...]` bucket
+via `gamification.award_xp`. The **level depends only on `xpTotal`** — the
+per-category split is informational (it drives the header donut chart), nothing
+reads it back.
+
+The category for an award is decided one of three ways:
+
+1. **Hardcoded at the handler** for fixed actions.
+2. **From the activity spec** (`activities.ACTIVITY_SPECS[kind]["category"]`).
+3. **By the anchor cell's region** for inline between-cell quizzes
+   (`handlers._QUIZ_CATEGORY_BY_REGION`).
+
+| Action | Category | XP | Decided by |
+| --- | --- | --- | --- |
+| Explain a cell (first time per cell) | `exploration` | 3 | hardcoded (`award_explore`) |
+| Submit a reflection | `reflection` | 6 | hardcoded (`record_reflection`) |
+| Claim a mission | the mission's `kind` | mission's `xp` | mission (`analyzer.generate_missions`) |
+| Answer a between-cell quiz / predict | by anchor region† | 5 correct · 2 attempt | `_QUIZ_CATEGORY_BY_REGION` |
+| Pass a teach-back | activity spec (`reflection`) | 8 | `activities.category_for` |
+| Answer a Flowy paste-quiz | `understanding` | 6 correct · 2 attempt | hardcoded |
+| Auto-checks on analyze | per rule‡ | varies | `handlers._auto_check_rules` |
+
+† `load → exploration`, `clean → stabilization`, `explore → exploration`,
+`visualize → exploration`, `model → understanding`, default `understanding`.
+
+‡ no-unused-vars / clean-execution / no-duplicates → `stabilization`;
+has-visualization → `exploration`; model-evaluated → `understanding`;
+has-markdown → `reflection`.
+
+`award_xp` clamps the amount to `>= 0` and falls back to `exploration` for an
+unknown category, and every award is idempotent on its (notebook-namespaced)
+award key — so the split reflects distinct accomplishments, not repeated clicks.
+
+To change a mapping: rename/add categories in `gamification.XP_CATEGORIES`;
+change a region's bucket in `handlers._QUIZ_CATEGORY_BY_REGION`; change an
+activity kind's bucket in `activities.ACTIVITY_SPECS`; change a mission's bucket
+via its `kind` in `analyzer.generate_missions`.
+
+## What is LLM-based and what isn't
+
+A core design principle (and the course goal: *support notebook authoring
+without becoming a generic chatbot*): the **structural / scoring half is
+deterministic**, and the LLM is reserved for **open-ended, context-specific
+language**.
+
+| LLM-based (open-ended language) | Deterministic / heuristic (no LLM) |
+| --- | --- |
+| Chat (`/chat`) | Notebook analysis: regions, AST deps, issues, missions, injection points (`analyzer.py`) |
+| Explain a cell (`/explain-cell`) | XP, levels, ranks, streak, award log (`gamification.py`) |
+| Reflect prompt (`/reflect/prompt`) | MCQ grading — `selectedIndex === correctIndex`, client-side (`questCells.ts`) |
+| Next steps (`/next-steps`) | Reflection recording (`/reflect/answer`) — stored + XP, not graded |
+| Activity / quiz generation (`/quiz/generate`, `/activity/generate`, `/flowy/quiz`) | Auto-checks (`handlers._auto_check_rules`) — XP for good structure |
+| Teach-back grading (`/activity/grade`) — free text vs rubric | Status / settings / wipe / quest-init / activity registry — plumbing |
+
+All LLM calls route through `ai_backend.AssistantClient` via `handlers._run_llm`
+(worker thread, 75s deadline, bounded retries).
+
+Why the split is drawn here:
+
+- **The skeleton is deterministic so it's trustworthy, instant, and free.**
+  Where cells sit, what depends on what, which cells have issues, what missions
+  exist, and your XP/level must be identical on every scan, must work with no
+  API key, and must be cheap — `/analyze` re-runs on every debounced edit. The
+  backend is the source of truth for XP precisely *because* it is computed, not
+  generated; a level should never change because the model was moody.
+- **The LLM is reserved for the genuinely open-ended** — explanations,
+  reflective questions, quiz content, and free-text judgment have no closed-form
+  answer and their whole value is tailored, context-aware prose.
+- **Grading stays deterministic where it can.** Multiple-choice activities are
+  graded by index comparison (instant, can't be wrong). The only LLM-graded
+  surface is teach-back, where the answer is free text — and even there it
+  degrades to a lenient length heuristic (`activities._heuristic_grade`) if the
+  model can't be reached, so a flaky endpoint never blocks the learner.
+- **Graceful degradation.** Because the structural half is LLM-free, the
+  extension stays useful with no model configured: regions, issues, missions,
+  XP, and auto-checks all still work; only the generative features return a
+  friendly 503. Generated activity content also has a deterministic template
+  fallback (`ai_backend._FALLBACK_QUIZZES`) so unparseable model output never
+  yields a broken cell.
+
+## How cells are classified and surfaces are placed
+
+Everything the user sees in a notebook is derived from one backend call. The
+frontend serialises the notebook and POSTs it to `/piis-assistant/analyze`;
+`analyzer.py` returns a per-cell analysis plus a list of injection points, and
+the frontend renders five surfaces from that result. This section explains how
+each "where does what appear" decision is made.
+
+### The five surfaces and what places them
+
+| Surface | Placement rule | Source |
+| --- | --- | --- |
+| **In-notebook banner** | One per open notebook, pinned to the top of the scroll area. Always present. | `notebookBanner.ts` |
+| **Per-cell chip** | One per real cell, mounted at the top of the cell (indented past Jupyter's prompt gutter). Always present. | `cellDecorations.ts` |
+| **Inline cell panel** | Inserted directly below a cell's input when its chip is clicked; tied 1:1 to that cell. Sub-sections (Issues, Missions) render only if that cell has them. | `cellDecorations.ts` |
+| **Virtual activity cell** | One per *injection point*, placed after its anchor cell (see below). | `questCells.ts` + `cellModules/` |
+| **Sidebar (Quest / Flowy / Chat)** | Single shared left-rail widget; fixed tabs. Reflects the current notebook's analysis + global XP. | `sidebar.ts` |
+
+### Region classification — `analyzer._classify_region`
+
+Each cell is tagged with a *region* (the `⚙️ Setup` / `📦 Load` / … label on the
+chip). This is the core "which section is this cell" decision:
+
+1. Markdown → `narrative`; raw/empty → `other`.
+2. Otherwise the source is **keyword-scored** against `_REGION_KEYWORDS`. Each
+   region has a keyword list, e.g. `load` → `read_csv`, `pd.DataFrame(`, …;
+   `model` → `.fit(`, `LogisticRegression`, `accuracy_score`, …; `setup` →
+   `import `, `np.random.seed`, …
+3. The region with the **highest hit count** wins (`max(score)`).
+4. No matches: a short print/expression cell → `output`; otherwise → `other`.
+
+It's heuristic and best-effort — it can misclassify. `_REGION_KEYWORDS` is the
+single place to tune it; `REGION_ORDER` / `REGION_ICONS` control ordering + icons.
+
+### The chip badges — AST analysis (`_NameCollector`)
+
+Each code cell is parsed to an AST to populate the facts shown on the chip and
+in the panel's fact row:
+
+- **`defines`** — names the cell binds (assignments, `def`, `class`, imports).
+- **`uses`** — names the cell reads (minus Python builtins).
+- **`exec #N`** — the cell's execution count (or a `not executed` badge).
+- **Dependency arrows** — for each used name, the earliest cell that defined it
+  becomes a `depends_on` edge (rendered `← cell N`); the reverse edges become
+  `dependents` (rendered `→ cell N`). This is the notebook's data-flow graph.
+
+The chip's coloured **dot** shows the worst-severity issue on the cell, and a
+**★ N** star appears when N missions target it.
+
+### Injection points — `analyzer._compute_injection_points`
+
+This decides where virtual activity cells (quiz / predict / teach-back) appear:
+
+1. Walk cells and group **consecutive code cells of the same region** into
+   "runs". Markdown or a non-activity region ends a run.
+2. Only these regions qualify (`_ACTIVITY_REGIONS`): `load`, `clean`, `explore`,
+   `visualize`, `model`. `setup` / `output` / `narrative` runs are skipped.
+3. Each qualifying run gets **one** injection point, anchored to the **last cell
+   of the run** by its stable nbformat cell id (not index — so it survives
+   inserts, deletes, and moves).
+4. The activity **kind** is deterministic, not random: `_activity_kind_for`
+   picks among the kinds eligible for that region and rotates by run index, so
+   the same notebook yields stable, varied activities across re-scans.
+
+### Missions — `analyzer.generate_missions`
+
+Missions are generated from detected issues + notebook shape, and each declares
+the `cell_indices` it targets — that's what drives the chip ★ star and the
+panel's Missions section. Examples: unused variables → "Revive the dead code";
+out-of-order/not-executed → "Fix the flow"; a `model` region with no evaluation
+call → "Put the model on trial"; a fallback "Take the grand tour" if nothing
+else fires.
+
+### End-to-end
+
+```
+edit/run notebook → (debounced) POST /piis-assistant/analyze
+  analyzer.py:
+    classify region        (keyword scoring)      → chip label
+    AST defines/uses/deps                          → chip badges + arrows
+    detect issues                                  → chip dot colour
+    generate missions (cell_indices)               → chip ★ + panel Missions
+    compute injection points (runs → last cell)    → virtual activity cells
+  → { cells[], issues[], missions[], injectionPoints[], questState }
+frontend renders chips/panels (per cell), activity cells (per injection point),
+banner + sidebar (from questState + analysis).
+```
 
 ## Where to change behavior
 

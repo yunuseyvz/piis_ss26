@@ -13,6 +13,9 @@ import type { AnalysisResponse, QuestState } from './types';
 
 const HOST_CLASS = 'flowquest-avatarHost';
 
+/** Max speech bubbles visible at once. Older ones are evicted (toast-style). */
+const MAX_BUBBLES = 3;
+
 export type AvatarMood =
   | 'idle'
   | 'thinking'
@@ -101,8 +104,10 @@ export class AvatarAssistant {
    * and XP pops (siblings of the visual) survive mood changes. */
   private avatarEl: HTMLElement | null = null;
   private visualLayer: HTMLElement | null = null;
-  private bubble: HTMLElement | null = null;
-  private bubbleTimer: number | null = null;
+  /** Stacking container for speech bubbles (newest at the bottom, nearest the
+   * avatar). Holds at most MAX_BUBBLES; older ones are evicted like toasts. */
+  private bubbleStack: HTMLElement | null = null;
+  private bubbles: Array<{ el: HTMLElement; timer: number }> = [];
   private mood: AvatarMood = 'idle';
   private state: QuestState | null = null;
   private tipIndex = 0;
@@ -232,9 +237,7 @@ export class AvatarAssistant {
   }
 
   dispose(): void {
-    if (this.bubbleTimer !== null) {
-      window.clearTimeout(this.bubbleTimer);
-    }
+    this.clearBubbles();
     if (this.transientTimer !== null) {
       window.clearTimeout(this.transientTimer);
     }
@@ -357,44 +360,66 @@ export class AvatarAssistant {
   }
 
   private showBubble(text: string, duration: number): void {
-    if (this.bubbleTimer !== null) {
-      window.clearTimeout(this.bubbleTimer);
+    const stack = this.bubbleStack;
+    if (!stack) {
+      return;
     }
-    this.removeBubble();
 
     const bubble = document.createElement('div');
     bubble.className = 'flowquest-avatarBubble';
     bubble.innerHTML = `<span class="flowquest-avatarBubbleText">${escapeHtml(text)}</span>
       <button class="flowquest-avatarBubbleClose" aria-label="Dismiss">×</button>`;
-    this.host.appendChild(bubble);
-    this.bubble = bubble;
+    // Newest bubble sits at the bottom of the stack, closest to the avatar.
+    stack.appendChild(bubble);
 
-    // Animate in
-    requestAnimationFrame(() => {
-      bubble.classList.add('is-visible');
-    });
+    const entry = { el: bubble, timer: 0 };
+    this.bubbles.push(entry);
+
+    // Cap the stack: evict the oldest (top-most) once we exceed the limit.
+    while (this.bubbles.length > MAX_BUBBLES) {
+      const oldest = this.bubbles.shift();
+      if (oldest) {
+        this.dismissBubble(oldest);
+      }
+    }
+
+    // Animate in.
+    requestAnimationFrame(() => bubble.classList.add('is-visible'));
 
     const closeBtn = bubble.querySelector('.flowquest-avatarBubbleClose');
     if (closeBtn) {
       closeBtn.addEventListener('click', e => {
         e.stopPropagation();
-        this.removeBubble();
+        this.dismissBubble(entry);
       });
     }
 
-    this.bubbleTimer = window.setTimeout(() => {
-      this.removeBubble();
-    }, duration);
+    entry.timer = window.setTimeout(() => this.dismissBubble(entry), duration);
   }
 
-  private removeBubble(): void {
-    if (this.bubble) {
-      this.bubble.classList.remove('is-visible');
-      window.setTimeout(() => {
-        this.bubble?.remove();
-        this.bubble = null;
-      }, 250);
+  /** Fade out and remove a single bubble, clearing its timer and stack slot. */
+  private dismissBubble(entry: { el: HTMLElement; timer: number }): void {
+    if (entry.timer) {
+      window.clearTimeout(entry.timer);
+      entry.timer = 0;
     }
+    const idx = this.bubbles.indexOf(entry);
+    if (idx !== -1) {
+      this.bubbles.splice(idx, 1);
+    }
+    entry.el.classList.remove('is-visible');
+    window.setTimeout(() => entry.el.remove(), 250);
+  }
+
+  /** Remove every active bubble (used on dispose). */
+  private clearBubbles(): void {
+    this.bubbles.forEach(entry => {
+      if (entry.timer) {
+        window.clearTimeout(entry.timer);
+      }
+      entry.el.remove();
+    });
+    this.bubbles = [];
   }
 
   /** Build the persistent DOM scaffold once. Bubbles and XP pops are appended
@@ -416,6 +441,15 @@ export class AvatarAssistant {
 
     avatar.appendChild(body);
     avatar.appendChild(ring);
+
+    // Bubble stack: a column above the avatar that holds the most recent
+    // speech bubbles (toast-style). Built once so bubbles survive mood
+    // re-renders and stack instead of overwriting each other.
+    const bubbleStack = document.createElement('div');
+    bubbleStack.className = 'flowquest-avatarBubbleStack';
+    this.host.appendChild(bubbleStack);
+    this.bubbleStack = bubbleStack;
+
     this.host.appendChild(avatar);
 
     this.avatarEl = avatar;

@@ -111,7 +111,7 @@ This is the single most important architectural fact:
 | --- | --- | --- | --- |
 | `~/.flowquest/progress.json` | **All XP, levels, award log, reflections, quiz tallies, idempotency keys** | **GLOBAL — per user, across every notebook** | **Server** (`progress_store.py`) |
 | `~/.flowquest/settings.json` (+ OS keychain) | Model, base URL, API key, favourite models | Per user | Server (`settings.py`) |
-| `notebook.metadata.flowquest` | **Only `difficulty` + generated `quizzes`** | Per notebook, travels with the `.ipynb` | Frontend (`questStore.ts`) |
+| `notebook.metadata.flowquest` | `difficulty` + generated `quizzes` + per-notebook `chat` transcript | Per notebook, travels with the `.ipynb` | Frontend (`questStore.ts`) |
 
 XP and levels are **global and server-owned**. The frontend keeps a single
 in-memory mirror (`globalState` in `index.ts`) hydrated from the server and
@@ -214,7 +214,7 @@ All under `/piis-assistant/`, all `@web.authenticated`.
 | `api.ts` | `apiRequest` wrapper, `FlowquestApiError`, `escapeHtml`, `clipText`, client-side hash |
 | `types.ts` | All shared TS interfaces; mirrors backend JSON. **`QuestState` mirrors `gamification.public_view()`** |
 | `questState.ts` | `EMPTY_QUEST_STATE` constant |
-| `questStore.ts` | `QuestMetadataStore` — reads/writes `metadata.flowquest` (difficulty + quizzes only), debounced save |
+| `questStore.ts` | `QuestMetadataStore` — reads/writes `metadata.flowquest` (difficulty + quizzes + per-notebook chat transcript), debounced save |
 | `notebookContext.ts` | `describeNotebook` (chat context) + `buildAnalysisPayload` (analyze payload) |
 | `notebookBanner.ts` | In-notebook HUD banner |
 | `cellDecorations.ts` | Per-cell chip + inline Explain/Reflect/missions panel |

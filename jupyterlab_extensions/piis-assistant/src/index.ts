@@ -7,6 +7,7 @@ import { AvatarAssistant } from './avatarAssistant';
 import { CellDecorator } from './cellDecorations';
 import { NotebookBanner } from './notebookBanner';
 import { buildAnalysisPayload, describeNotebook } from './notebookContext';
+import { HandbookPanel } from './handbookPanel';
 import { QuestCellRenderer } from './questCells';
 import { QuestMetadataStore } from './questStore';
 import { EMPTY_QUEST_STATE } from './questState';
@@ -87,6 +88,8 @@ function activate(
     propagateGlobalState();
   };
 
+  const handbookPanel = new HandbookPanel();
+
   const sidebar = new AssistantSidebar({
     refreshAnalysis: async () => {
       const panel = currentPanel();
@@ -117,6 +120,7 @@ function activate(
     },
     getNotebookPath: () => currentPanel()?.context.path ?? '',
     openSettings: tab => settingsPanel.open(tab ?? 'global'),
+    openHandbook: () => handbookPanel.open(),
     saveChat: messages => {
       const panel = currentPanel();
       if (!panel) {
@@ -278,7 +282,8 @@ function activate(
           }
         },
         rescan: () => analyze(panel, true),
-        openSettings: tab => settingsPanel.open(tab ?? 'notebook')
+        openSettings: tab => settingsPanel.open(tab ?? 'notebook'),
+        openHandbook: () => handbookPanel.open()
       });
 
       const avatar = new AvatarAssistant(panel, {

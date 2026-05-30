@@ -304,59 +304,6 @@
 }
 
 /* ========================================================================
-   Quest tab: XP cards
-   ======================================================================== */
-
-.flowquest-xpGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-}
-
-.flowquest-xpCard {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 10px;
-  border: var(--fq-border);
-  border-radius: var(--fq-radius-sm);
-  background: var(--jp-layout-color1);
-}
-
-.flowquest-xpCardIcon {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.flowquest-xpCardValue {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--jp-ui-font-color0);
-  line-height: 1;
-}
-
-.flowquest-xpCardLabel {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--jp-ui-font-color2);
-}
-
-.flowquest-xpCard-exploration {
-  border-left: 4px solid var(--fq-exploration);
-}
-.flowquest-xpCard-understanding {
-  border-left: 4px solid var(--fq-understanding);
-}
-.flowquest-xpCard-stabilization {
-  border-left: 4px solid var(--fq-stabilization);
-}
-.flowquest-xpCard-reflection {
-  border-left: 4px solid var(--fq-reflection);
-}
-
-/* ========================================================================
    Missions
    ======================================================================== */
 
@@ -512,6 +459,7 @@
   gap: 12px;
   padding: 12px;
   border: var(--fq-border);
+  border-radius: var(--fq-radius);
   background: var(--jp-layout-color1);
 }
 
@@ -1594,6 +1542,104 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   overflow: hidden;
 }
 
+/* ------------------------------------------------------------------ */
+/* Handbook modal — chapter nav + scrollable content (shares the      */
+/* settings overlay host + header).                                   */
+/* ------------------------------------------------------------------ */
+
+.flowquest-handbookHost {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+
+.flowquest-handbookModal {
+  position: relative;
+  width: min(840px, 94vw);
+  height: min(80vh, 760px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--jp-layout-color1);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  box-shadow: var(--fq-shadow-pop);
+  font-family: var(--jp-ui-font-family, sans-serif);
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size1, 13px);
+  overflow: hidden;
+}
+
+.flowquest-handbookBody {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.flowquest-handbookNav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow: auto;
+  border-right: var(--fq-border);
+  background: var(--jp-layout-color0);
+}
+
+.flowquest-handbookNavItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--fq-radius-sm);
+  background: transparent;
+  color: var(--jp-ui-font-color1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.flowquest-handbookNavItem:hover {
+  background: var(--jp-layout-color2);
+}
+
+.flowquest-handbookNavItem.is-active {
+  background: var(--jp-layout-color2);
+  box-shadow: inset 3px 0 0 var(--fq-accent);
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-handbookNavIcon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.flowquest-handbookContent {
+  overflow: auto;
+  padding: 18px 22px;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .flowquest-handbookBody {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .flowquest-handbookNav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: var(--fq-border);
+  }
+}
+
 .flowquest-settingsHeader {
   display: flex;
   justify-content: space-between;
@@ -2388,11 +2434,24 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
 }
 
 /* Speech bubble */
-.flowquest-avatarBubble {
+/* Speech bubble stack — a column above the avatar holding the most recent
+   bubbles (toast-style). The avatar host is anchored bottom-right; the stack
+   grows upward from just above the avatar. */
+.flowquest-avatarBubbleStack {
   position: absolute;
   bottom: 72px;
   right: 0;
   width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.flowquest-avatarBubble {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border: var(--fq-border);
   border-radius: var(--fq-radius);
@@ -2405,7 +2464,6 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   transform: translateY(8px) scale(0.96);
   transition: opacity 0.25s ease, transform 0.25s ease;
   pointer-events: auto;
-  z-index: 101;
 }
 
 .flowquest-avatarBubble.is-visible {
@@ -2413,7 +2471,8 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   transform: translateY(0) scale(1);
 }
 
-.flowquest-avatarBubble::after {
+/* Only the bottom-most bubble points at the avatar. */
+.flowquest-avatarBubble:last-child::after {
   content: '';
   position: absolute;
   bottom: -8px;
@@ -2425,7 +2484,7 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   border-top: 8px solid var(--jp-border-color1, #bdbdbd);
 }
 
-.flowquest-avatarBubble::before {
+.flowquest-avatarBubble:last-child::before {
   content: '';
   position: absolute;
   bottom: -5px;
@@ -2436,6 +2495,11 @@ body[data-jp-theme-light='false'] .flowquest-quizOptionLetter {
   border-right: 6px solid transparent;
   border-top: 6px solid var(--jp-layout-color0, #fff);
   z-index: 1;
+}
+
+/* Older bubbles in the stack are slightly dimmed to emphasise the newest. */
+.flowquest-avatarBubble.is-visible:not(:last-child) {
+  opacity: 0.72;
 }
 
 .flowquest-avatarBubbleText {
@@ -2469,7 +2533,7 @@ body[data-jp-theme-light='false'] .flowquest-avatarBubble {
   background: var(--jp-layout-color1, #1e1e1e);
 }
 
-body[data-jp-theme-light='false'] .flowquest-avatarBubble::before {
+body[data-jp-theme-light='false'] .flowquest-avatarBubble:last-child::before {
   border-top-color: var(--jp-layout-color1, #1e1e1e);
 }
 
@@ -2500,6 +2564,86 @@ body[data-jp-theme-light='false'] .flowquest-avatarBubble::before {
   font-weight: 600;
   color: var(--jp-ui-font-color2);
   margin-top: 4px;
+}
+
+/* ------------------------------------------------------------------ */
+/* XP-by-category donut chart (sidebar header, below the XP bar).      */
+/* ------------------------------------------------------------------ */
+
+.flowquest-categoryChart {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: var(--fq-border);
+}
+
+.flowquest-donutWrap {
+  position: relative;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+}
+
+.flowquest-donut {
+  width: 64px;
+  height: 64px;
+  display: block;
+}
+
+.flowquest-donutTrack {
+  stroke: var(--jp-layout-color3, #d0d0d0);
+}
+
+.flowquest-donutSeg {
+  transition: stroke-dasharray 0.4s ease, stroke-dashoffset 0.4s ease;
+}
+
+.flowquest-donutCenter {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--jp-ui-font-color2);
+}
+
+.flowquest-donutLegend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.flowquest-donutLegendItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.flowquest-donutSwatch {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.flowquest-donutLegendPct {
+  font-weight: 800;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-donutLegendLabel {
+  color: var(--jp-ui-font-color2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ------------------------------------------------------------------ */
