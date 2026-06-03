@@ -3,7 +3,7 @@ import { NotebookPanel } from '@jupyterlab/notebook';
 import { clipText } from './api';
 import type { NotebookContext } from './types';
 
-export { EMPTY_QUEST_STATE } from './questStore';
+export { EMPTY_QUEST_STATE } from './questState';
 
 const NOTEBOOK_CONTEXT_LIMIT = 12000;
 
@@ -27,7 +27,7 @@ export const EMPTY_NOTEBOOK: NotebookContext = {
     'Workspace context: FlowQuest project. No notebook is currently open in JupyterLab.'
 };
 
-function serializeNotebook(panel: NotebookPanel): string {
+function serializeNotebook(panel: NotebookPanel, activeIndex: number): string {
   const model = panel.content.model;
   if (!model || model.cells.length === 0) {
     return 'Notebook has no cells.';
@@ -39,7 +39,18 @@ function serializeNotebook(panel: NotebookPanel): string {
   for (let index = 0; index < model.cells.length; index += 1) {
     const cell = model.cells.get(index);
     const source = clipText(cell.sharedModel.getSource(), 1600) || '[empty cell]';
-    const block = `Cell ${index + 1} (${cell.type})\n${source}`;
+    const marker = index === activeIndex ? '  ← active cell' : '';
+    // Include the execution count for code cells so Flowy can reason about
+    // run order / stale state.
+    const exec =
+      cell.type === 'code'
+        ? (() => {
+            const raw = (cell.sharedModel as unknown as { execution_count?: number | null })
+              .execution_count;
+            return typeof raw === 'number' ? ` [exec ${raw}]` : ' [not run]';
+          })()
+        : '';
+    const block = `Cell ${index + 1} (${cell.type})${exec}${marker}\n${source}`;
     const extraLength = block.length + 2;
 
     if (totalLength + extraLength > NOTEBOOK_CONTEXT_LIMIT) {
@@ -98,45 +109,45 @@ export function describeNotebook(panel: NotebookPanel | null): NotebookContext {
     `Kernel: ${panel.sessionContext.kernelDisplayName || 'No kernel'} (${panel.sessionContext.session?.kernel?.status ?? 'disconnected'})`
   ];
 
-  const wholeNotebook = serializeNotebook(panel);
-  const hasActiveContext =
-    activeCellIndex >= 0 && Boolean(activeCellSource || selectedOutput || activeOutput);
+  // Flowy always gets the full notebook ("Gesamtkontext"), with the active
+  // cell clearly marked, plus the active cell's source/output called out
+  // separately so the model can focus when the user asks about "this cell".
+  const wholeNotebook = serializeNotebook(panel, activeCellIndex);
+  const hasActiveCell = activeCellIndex >= 0;
+  const outputCopy = selectedOutput || activeOutput;
 
-  if (hasActiveContext) {
-    const outputCopy = selectedOutput || activeOutput;
-    const attachedPromptContext = [
-      ...notebookMeta,
-      `Active cell: ${activeCellIndex + 1} (${activeCellType})`,
+  const activeSection: string[] = [];
+  if (hasActiveCell) {
+    activeSection.push(
       '',
+      `Currently active cell: ${activeCellIndex + 1} (${activeCellType})`,
       'Active cell source:',
       activeCellSource || '[empty cell]'
-    ];
-
+    );
     if (outputCopy) {
-      attachedPromptContext.push('', 'Active output preview:', outputCopy);
+      activeSection.push('', 'Active cell output preview:', outputCopy);
     }
-
-    return {
-      hasNotebook: true,
-      notebookName,
-      path: panel.context.path,
-      cellCount: model.cells.length,
-      activeCellIndex,
-      activeCellType,
-      activeCellSource,
-      activeOutput,
-      selectedOutput,
-      kernelName: panel.sessionContext.kernelDisplayName || 'No kernel',
-      kernelStatus: panel.sessionContext.session?.kernel?.status ?? 'disconnected',
-      contextMode: 'active-cell',
-      attachmentLabel: `Cell ${activeCellIndex + 1} attached automatically`,
-      attachmentPreview: activeCellSource || outputCopy || '[empty cell]',
-      attachedPromptContext: clipText(
-        attachedPromptContext.join('\n'),
-        NOTEBOOK_CONTEXT_LIMIT
-      )
-    };
+  } else {
+    activeSection.push('', 'No cell is currently focused.');
   }
+
+  const attachedPromptContext = clipText(
+    [
+      ...notebookMeta,
+      '',
+      'Full notebook contents (the active cell is marked):',
+      wholeNotebook,
+      ...activeSection
+    ].join('\n'),
+    NOTEBOOK_CONTEXT_LIMIT
+  );
+
+  const attachmentLabel = hasActiveCell
+    ? `Whole notebook + cell ${activeCellIndex + 1}`
+    : 'Whole notebook attached';
+  const attachmentPreview = hasActiveCell
+    ? activeCellSource || outputCopy || '[empty cell]'
+    : clipText(wholeNotebook, 1400);
 
   return {
     hasNotebook: true,
@@ -150,13 +161,11 @@ export function describeNotebook(panel: NotebookPanel | null): NotebookContext {
     selectedOutput,
     kernelName: panel.sessionContext.kernelDisplayName || 'No kernel',
     kernelStatus: panel.sessionContext.session?.kernel?.status ?? 'disconnected',
-    contextMode: 'whole-notebook',
-    attachmentLabel: 'Whole notebook attached automatically',
-    attachmentPreview: clipText(wholeNotebook, 1400),
-    attachedPromptContext: clipText(
-      [...notebookMeta, '', 'Notebook contents:', wholeNotebook].join('\n'),
-      NOTEBOOK_CONTEXT_LIMIT
-    )
+    // Always whole-notebook context; the active cell is highlighted within it.
+    contextMode: hasActiveCell ? 'active-cell' : 'whole-notebook',
+    attachmentLabel,
+    attachmentPreview,
+    attachedPromptContext
   };
 }
 

@@ -1,71 +1,32 @@
 /**
- * Per-notebook FlowQuest state, persisted inside the notebook's own metadata.
+ * Per-notebook FlowQuest metadata, persisted inside the notebook's own file.
  *
- * The notebook file gains a top-level ``metadata.flowquest`` object. After
- * the v2 gamification rework this stores:
- *   - baseline LLM health scoring,
- *   - earned health points per criterion,
- *   - award log,
- *   - reflections,
- *   - quiz records.
+ * Since v4, XP and levels are **global** (user-scoped, owned by the server at
+ * ``~/.flowquest/progress.json``) — they are no longer stored per notebook.
+ * What remains in ``metadata.flowquest`` is only the data that is genuinely
+ * per-notebook:
  *
- * Progress travels with the .ipynb.
+ *   - ``difficulty``  — the per-notebook difficulty preference
+ *   - ``quizzes``     — generated quiz content + answers, anchored to cells
+ *   - ``chat``        — the Flowy chat transcript for this notebook
+ *
+ * Quiz content and chat are inherently tied to a notebook, so they travel with
+ * the ``.ipynb``. Progression does not.
  */
 
 import { NotebookPanel } from '@jupyterlab/notebook';
 
-import type { QuestState, QuizRecord } from './types';
+import type { ConversationMessage, DifficultyLevel, QuizRecord } from './types';
 
 const METADATA_KEY = 'flowquest';
 const QUIZZES_KEY = 'quizzes';
-
-export const EMPTY_QUEST_STATE: QuestState = {
-  notebookKey: '',
-  notebookPath: '',
-  schemaVersion: 2,
-  initialized: false,
-  baselineHealth: 0,
-  baselineBreakdown: {},
-  baselineNotes: '',
-  healthPoints: {},
-  completedAwardKeys: [],
-  awardLog: [],
-  reflections: [],
-  quizAttempts: 0,
-  quizCorrect: 0,
-  streakDays: 0,
-  lastActiveTs: 0,
-  wonAt: 0,
-  difficulty: 'medium',
-  healthScore: 0,
-  healthTarget: 100,
-  healthRemaining: 100,
-  healthProgress: 0,
-  healthLabel: '—',
-  rankTitle: 'Notebook Novice',
-  pointsEarned: 0,
-  pointsAvailable: 0,
-  won: false,
-  criteria: []
-};
+const CHAT_KEY = 'chat';
+const CHAT_LIMIT = 50;
 
 interface RawQuestMetadata {
-  schemaVersion?: number;
-  initialized?: boolean;
-  baselineHealth?: number;
-  baselineBreakdown?: Record<string, number | null>;
-  baselineNotes?: string;
-  healthPoints?: Record<string, number>;
-  completedAwardKeys?: string[];
-  awardLog?: Array<{ key: string; criterion: string; points: number; label: string; ts: number }>;
-  reflections?: Array<{ cellIndex: number; text: string; ts: number }>;
-  quizAttempts?: number;
-  quizCorrect?: number;
-  streakDays?: number;
-  lastActiveTs?: number;
-  wonAt?: number;
   difficulty?: string;
   quizzes?: Record<string, QuizRecord>;
+  chat?: ConversationMessage[];
 }
 
 export class QuestMetadataStore {
@@ -78,7 +39,7 @@ export class QuestMetadataStore {
     });
   }
 
-  /** Raw persisted blob. Backend-friendly shape. */
+  /** Raw persisted blob (difficulty + quizzes only). */
   readRaw(): RawQuestMetadata {
     const model = this.panel.content.model;
     if (!model) {
@@ -91,40 +52,27 @@ export class QuestMetadataStore {
     return {};
   }
 
-  /** Persist a fresh public state back into notebook metadata. */
-  write(state: QuestState): void {
+  /** Read the difficulty preference (frontend-owned, per notebook). */
+  readDifficulty(): DifficultyLevel {
+    const raw = this.readRaw().difficulty;
+    if (raw === 'easy' || raw === 'hard' || raw === 'medium') {
+      return raw;
+    }
+    return 'medium';
+  }
+
+  /** Persist just the difficulty without disturbing other fields. */
+  writeDifficulty(difficulty: DifficultyLevel): void {
     const model = this.panel.content.model;
     if (!model) {
       return;
     }
     const existing = this.readRaw();
-    const serialized: RawQuestMetadata = {
-      schemaVersion: state.schemaVersion ?? 2,
-      initialized: state.initialized,
-      baselineHealth: state.baselineHealth,
-      baselineBreakdown: { ...(state.baselineBreakdown || {}) },
-      baselineNotes: state.baselineNotes,
-      healthPoints: { ...(state.healthPoints || {}) },
-      completedAwardKeys: state.completedAwardKeys.slice(-800),
-      awardLog: state.awardLog.slice(-200),
-      reflections: state.reflections.slice(-100),
-      quizAttempts: state.quizAttempts,
-      quizCorrect: state.quizCorrect,
-      streakDays: state.streakDays,
-      lastActiveTs: state.lastActiveTs || Date.now() / 1000,
-      wonAt: state.wonAt,
-      difficulty: state.difficulty ?? 'medium',
-      quizzes: existing.quizzes ?? {}
-    };
-    // Skip no-op writes
-    try {
-      if (existing && JSON.stringify(existing) === JSON.stringify(serialized)) {
-        return;
-      }
-    } catch {
-      /* fall through */
+    if (existing.difficulty === difficulty) {
+      return;
     }
-    model.sharedModel.setMetadata(METADATA_KEY, serialized as unknown as never);
+    const next: RawQuestMetadata = { ...existing, difficulty };
+    model.sharedModel.setMetadata(METADATA_KEY, next as unknown as never);
     this.scheduleSave();
   }
 
@@ -146,6 +94,34 @@ export class QuestMetadataStore {
     const quizzes: Record<string, QuizRecord> = { ...(existing.quizzes ?? {}) };
     quizzes[record.slotId] = record;
     const next: RawQuestMetadata = { ...existing, [QUIZZES_KEY]: quizzes };
+    model.sharedModel.setMetadata(METADATA_KEY, next as unknown as never);
+    this.scheduleSave();
+  }
+
+  /** Read the saved Flowy chat transcript for this notebook. */
+  readChat(): ConversationMessage[] {
+    const chat = this.readRaw().chat;
+    if (!Array.isArray(chat)) {
+      return [];
+    }
+    return chat.filter(
+      (m): m is ConversationMessage =>
+        !!m &&
+        typeof m === 'object' &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string'
+    );
+  }
+
+  /** Persist the Flowy chat transcript for this notebook (most recent kept). */
+  writeChat(messages: ConversationMessage[]): void {
+    const model = this.panel.content.model;
+    if (!model) {
+      return;
+    }
+    const existing = this.readRaw();
+    const trimmed = messages.slice(-CHAT_LIMIT);
+    const next: RawQuestMetadata = { ...existing, [CHAT_KEY]: trimmed };
     model.sharedModel.setMetadata(METADATA_KEY, next as unknown as never);
     this.scheduleSave();
   }

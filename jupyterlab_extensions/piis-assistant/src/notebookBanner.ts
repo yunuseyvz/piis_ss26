@@ -7,7 +7,7 @@
 
 import type { NotebookPanel } from '@jupyterlab/notebook';
 
-import { escapeHtml } from './api';
+import { escapeHtml, notebookAwardPrefix } from './api';
 import type { AnalysisResponse, QuestState } from './types';
 
 const HOST_CLASS = 'flowquest-banner';
@@ -16,6 +16,7 @@ interface BannerCallbacks {
   openSidebar: (tab?: 'quest' | 'chat') => void;
   rescan: () => Promise<void>;
   openSettings: (tab?: 'global' | 'notebook') => void;
+  openHandbook: () => void;
 }
 
 export class NotebookBanner {
@@ -65,53 +66,69 @@ export class NotebookBanner {
   private render(): void {
     const analysis = this.analysis;
     const state = this.state;
-    const xp = state?.pointsEarned ?? 0;
+    const xp = state?.xpTotal ?? 0;
+    const level = state?.level ?? 1;
     const rank = state?.rankTitle ?? 'Notebook Novice';
+    const progress = Math.max(0, Math.min(100, Math.round((state?.levelProgress ?? 0) * 100)));
+    const toNext = state?.xpToNextLevel ?? 0;
+
+    const meterHtml = `<span class="flowquest-levelMeterFill" style="width:${progress}%"></span>`;
 
     const missions = analysis?.missions ?? [];
     const completedSet = new Set(state?.completedAwardKeys ?? []);
-    const openMissionCount = missions.filter(m => !completedSet.has(`mission:${m.id}`)).length;
+    const awardPrefix = notebookAwardPrefix(state?.notebookPath);
+    const openMissionCount = missions.filter(
+      m => !completedSet.has(`${awardPrefix}mission:${m.id}`)
+    ).length;
     const quizCount = (analysis?.injectionPoints ?? []).length;
 
     this.host.innerHTML = `
       <div class="flowquest-bannerInner">
-        <div class="flowquest-bannerBrand" data-action="open-sidebar">
+        <button type="button" class="flowquest-bannerBrand" data-action="open-sidebar">
           <span class="flowquest-bannerMark">🗺️</span>
-          <div>
-            <div class="flowquest-bannerTitle">FlowQuest</div>
-            <div class="flowquest-bannerSub">${escapeHtml(rank)}</div>
-          </div>
-        </div>
+          <span class="flowquest-bannerBrandText">
+            <span class="flowquest-bannerTitle">FlowQuest</span>
+            <span class="flowquest-bannerSub">${escapeHtml(rank)}</span>
+          </span>
+        </button>
 
-        <button
-          type="button"
-          class="flowquest-bannerTile flowquest-bannerTile-level"
-          data-action="open-quest"
-          title="Open Quest tab"
-        >
-          <div class="flowquest-bannerTileLabel">XP Score</div>
-          <div class="flowquest-bannerTileValue">${xp}</div>
-          <div class="flowquest-bannerTileFoot">collect more by completing missions</div>
+        <button type="button" class="flowquest-bannerLevel" data-action="open-quest" title="${xp} XP total">
+          <span class="flowquest-bannerLevelTop">
+            <span class="flowquest-bannerLevelBadge">Lv ${level}</span>
+            <span class="flowquest-bannerLevelXp">${xp} XP</span>
+          </span>
+          <span class="flowquest-levelMeter">${meterHtml}</span>
+          <span class="flowquest-bannerLevelFoot">${
+            toNext > 0 ? `${toNext} XP to level ${level + 1}` : `Level ${level}`
+          }</span>
         </button>
 
         <button
           type="button"
-          class="flowquest-bannerTile flowquest-bannerTile-missions"
+          class="flowquest-bannerMissions"
           data-action="open-quest"
           title="Open Quest tab"
         >
-          <div class="flowquest-bannerTileLabel">Missions</div>
-          <div class="flowquest-bannerTileValue">${openMissionCount}</div>
-          <div class="flowquest-bannerTileFoot">${missions.length} total · ${quizCount} quiz${
+          <span class="flowquest-bannerMissionsLabel">Missions</span>
+          <span class="flowquest-bannerMissionsValue">${openMissionCount}</span>
+          <span class="flowquest-bannerMissionsFoot">${missions.length} total · ${quizCount} quiz${
             quizCount === 1 ? '' : 'zes'
-          }</div>
+          }</span>
         </button>
 
         <div class="flowquest-bannerActions">
-          <span class="flowquest-bannerDifficulty"
+          <button
+            type="button"
+            class="flowquest-bannerDifficulty"
             data-action="open-difficulty"
             title="Difficulty — click to change"
-          >${escapeHtml(difficultyLabelFor(state?.difficulty ?? 'medium'))}</span>
+          >${escapeHtml(difficultyLabelFor(state?.difficulty ?? 'medium'))}</button>
+          <button
+            type="button"
+            class="flowquest-bannerIconBtn"
+            data-action="open-handbook"
+            title="FlowQuest handbook"
+          >📖</button>
           <button
             type="button"
             class="flowquest-bannerIconBtn"
@@ -145,6 +162,10 @@ export class NotebookBanner {
         }
         if (action === 'open-settings') {
           this.callbacks.openSettings('global');
+          return;
+        }
+        if (action === 'open-handbook') {
+          this.callbacks.openHandbook();
           return;
         }
         if (action === 'open-difficulty') {

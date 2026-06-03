@@ -1,6 +1,7 @@
 import { Widget } from '@lumino/widgets';
 
-import { apiRequest, escapeHtml } from './api';
+import { apiRequest, escapeHtml, notebookAwardPrefix } from './api';
+import { renderMarkdown } from './markdown';
 import { toFriendlyError, inlineSpinnerHtml, thinkingHtml } from './uiFeedback';
 import type {
   AnalysisResponse,
@@ -8,15 +9,19 @@ import type {
   ConversationMessage,
   EndpointStatus,
   FlatIssue,
-  InitializeResponse,
+  FlowyQuiz,
   Mission,
+  MissionKind,
   NextStepsResponse,
   NotebookContext,
   QuestState,
+  QuizContent,
   SidebarPhase,
   SidebarTab
 } from './types';
-import { EMPTY_QUEST_STATE, EMPTY_NOTEBOOK } from './notebookContext';
+import { EMPTY_QUEST_STATE } from './questState';
+import { EMPTY_NOTEBOOK } from './notebookContext';
+import { renderFlowySvg } from './flowySprite';
 
 const SIDEBAR_ID = 'jupyterlab-piis-assistant:sidebar';
 const MESSAGE_HISTORY_LIMIT = 10;
@@ -51,6 +56,9 @@ export interface SidebarCallbacks {
   getState: () => QuestState;
   getNotebookPath: () => string;
   openSettings: (tab?: 'global' | 'notebook') => void;
+  openHandbook: () => void;
+  /** Persist the chat transcript into the active notebook's metadata. */
+  saveChat: (messages: ConversationMessage[]) => void;
 }
 
 export class AssistantSidebar extends Widget {
@@ -78,13 +86,42 @@ export class AssistantSidebar extends Widget {
     this.render();
   }
 
+  /**
+   * Switch the chat thread to a given notebook. Flushes the current transcript
+   * to its notebook first, then adopts the new notebook's saved transcript.
+   * Called by the host when the active notebook changes (and the store for the
+   * new notebook is ready). Chat is stored per notebook in metadata.flowquest.
+   */
+  setActiveChat(notebookPath: string, saved: ConversationMessage[]): void {
+    if (notebookPath === this._chatNotebookPath) {
+      return;
+    }
+    if (this._chatNotebookPath) {
+      this.persistChat();
+    }
+    this._chatNotebookPath = notebookPath;
+    this._messages = saved.length ? [...saved] : [INITIAL_MESSAGE];
+    this._phase = 'idle';
+    this.render();
+  }
+
+  /** Save the current transcript into the active notebook (skips the canned
+   * welcome-only state so we don't write empty chats). */
+  private persistChat(): void {
+    if (!this._chatNotebookPath) {
+      return;
+    }
+    const hasRealTurns = this._messages.some(m => m.includeInHistory);
+    this.callbacks.saveChat(hasRealTurns ? this._messages : []);
+  }
+
   updateAnalysis(analysis: AnalysisResponse | null): void {
     this._analysis = analysis;
     if (analysis?.questState) {
       this._questState = analysis.questState;
     }
     if (analysis?.autoCompleted?.length) {
-      const total = analysis.autoCompleted.reduce((acc, m) => acc + (m.points || 0), 0);
+      const total = analysis.autoCompleted.reduce((acc, m) => acc + (m.xp || 0), 0);
       if (total > 0) {
         this.flashToast(
           `+${total} XP from ${analysis.autoCompleted.length} auto-check(s)`
@@ -169,32 +206,53 @@ export class AssistantSidebar extends Widget {
   }
 
   private render(): void {
+    // Re-rendering rebuilds the whole subtree, which resets the scroll
+    // position of the scrollable body. Capture it before and restore it after
+    // so an action (claim, answer, etc.) doesn't yank the user back to the top.
+    // Only restore within the same tab — switching tabs should start at the top.
+    const prevBody = this.node.querySelector<HTMLElement>('.flowquest-body');
+    const sameTab = this._renderedTab === this._tab;
+    const prevScroll = prevBody && sameTab ? prevBody.scrollTop : 0;
+
     this.node.innerHTML = `
       <div class="flowquest-shell">
         ${this.renderHeader()}
         ${this.renderTabs()}
         <div class="flowquest-body">
           ${this._tab === 'quest' ? this.renderQuestTab() : ''}
+          ${this._tab === 'flowy' ? this.renderFlowyTab() : ''}
           ${this._tab === 'chat' ? this.renderChatTab() : ''}
         </div>
         ${this._toast ? `<div class="flowquest-toast">${escapeHtml(this._toast)}</div>` : ''}
       </div>
     `;
     this.bindHandlers();
+    this._renderedTab = this._tab;
+
+    if (prevScroll > 0) {
+      const body = this.node.querySelector<HTMLElement>('.flowquest-body');
+      if (body) {
+        body.scrollTop = prevScroll;
+      }
+    }
   }
 
   private renderHeader(): string {
     const statusClass = this._status.configured ? 'is-live' : 'is-missing';
     const state = this._questState ?? EMPTY_QUEST_STATE;
     const rank = state.rankTitle ?? 'Notebook Novice';
-    const xp = state.pointsEarned ?? 0;
+    const xp = state.xpTotal ?? 0;
+    const level = state.level ?? 1;
+    const progress = Math.max(0, Math.min(100, Math.round((state.levelProgress ?? 0) * 100)));
+    const toNext = state.xpToNextLevel ?? 0;
+    const meterHtml = `<span class="flowquest-levelMeterFill" style="width:${progress}%"></span>`;
     return `
       <header class="flowquest-header">
         <div class="flowquest-brand">
           <span class="flowquest-brandMark">🗺️</span>
           <div class="flowquest-brandCopy">
             <div class="flowquest-brandTitle">FlowQuest</div>
-            <div class="flowquest-brandSubtitle">${escapeHtml(rank)}</div>
+            <div class="flowquest-brandSubtitle">Lv ${level} · ${escapeHtml(rank)}</div>
           </div>
         </div>
         <div class="flowquest-headerMeta">
@@ -202,16 +260,90 @@ export class AssistantSidebar extends Widget {
             this._status.configured ? 'live' : 'missing'
           )}</span>
           <span class="flowquest-pill flowquest-pill-muted">${xp} XP</span>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="handbook" title="Open the FlowQuest handbook">📖</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="settings" title="Settings">⚙️</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="refresh">↻</button>
         </div>
+        <div class="flowquest-levelMeter" title="${state.xpIntoLevel ?? 0} / ${state.xpForNextLevel ?? 0} XP into level ${level}">
+          ${meterHtml}
+        </div>
+        <div class="flowquest-levelMeterLabel">${
+          toNext > 0 ? `${toNext} XP to level ${level + 1}` : `Level ${level}`
+        }</div>
+        ${this.renderCategoryChart()}
       </header>
+    `;
+  }
+
+  /** Donut chart of XP distribution across the four categories (global). */
+  private renderCategoryChart(): string {
+    const state = this._questState ?? EMPTY_QUEST_STATE;
+    const cats: Array<{ key: MissionKind; label: string; color: string }> = [
+      { key: 'exploration', label: 'Exploration', color: 'var(--fq-exploration)' },
+      { key: 'understanding', label: 'Understanding', color: 'var(--fq-understanding)' },
+      { key: 'stabilization', label: 'Stabilization', color: 'var(--fq-stabilization)' },
+      { key: 'reflection', label: 'Reflection', color: 'var(--fq-reflection)' }
+    ];
+    const total = cats.reduce((sum, cat) => sum + (state.xpByCategory?.[cat.key] ?? 0), 0);
+
+    // Build the donut arcs. Each segment is a circle whose visible dash spans
+    // its share of the ring; dashoffset shifts it to sit after the previous
+    // segments. The <g> rotation makes 0% start at the top (12 o'clock).
+    let cumulative = 0;
+    const segments = cats
+      .map(cat => {
+        const value = state.xpByCategory?.[cat.key] ?? 0;
+        const pct = total > 0 ? (value / total) * 100 : 0;
+        if (pct <= 0) {
+          return '';
+        }
+        const seg = `<circle class="flowquest-donutSeg" cx="18" cy="18" r="15.915" fill="none"
+          stroke="${cat.color}" stroke-width="4.5"
+          stroke-dasharray="${pct.toFixed(2)} ${(100 - pct).toFixed(2)}"
+          stroke-dashoffset="${(-cumulative).toFixed(2)}" />`;
+        cumulative += pct;
+        return seg;
+      })
+      .join('');
+
+    const donut = `
+      <svg class="flowquest-donut" viewBox="0 0 36 36" role="img" aria-label="XP by category">
+        <g transform="rotate(-90 18 18)">
+          <circle class="flowquest-donutTrack" cx="18" cy="18" r="15.915" fill="none" stroke-width="4.5" />
+          ${segments}
+        </g>
+      </svg>
+    `;
+
+    const legend = cats
+      .map(cat => {
+        const value = state.xpByCategory?.[cat.key] ?? 0;
+        const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+        return `
+          <div class="flowquest-donutLegendItem">
+            <span class="flowquest-donutSwatch" style="background:${cat.color}"></span>
+            <span class="flowquest-donutLegendPct">${pct}%</span>
+            <span class="flowquest-donutLegendLabel">${escapeHtml(cat.label)}</span>
+          </div>
+        `;
+      })
+      .join('');
+
+    return `
+      <div class="flowquest-categoryChart" title="XP distribution across categories (global)">
+        <div class="flowquest-donutWrap">
+          ${donut}
+          <span class="flowquest-donutCenter">XP</span>
+        </div>
+        <div class="flowquest-donutLegend">${legend}</div>
+      </div>
     `;
   }
 
   private renderTabs(): string {
     const tabs: Array<{ id: SidebarTab; icon: string; label: string }> = [
       { id: 'quest', icon: '⭐', label: 'Quest' },
+      { id: 'flowy', icon: '🤖', label: 'Flowy' },
       { id: 'chat', icon: '💬', label: 'Chat' }
     ];
     return `
@@ -241,12 +373,12 @@ export class AssistantSidebar extends Widget {
     const state = this._questState ?? EMPTY_QUEST_STATE;
     const analysis = this._analysis;
     const notebookLabel = this._notebook.hasNotebook ? this._notebook.notebookName : 'No notebook open';
-    const xp = state.pointsEarned ?? 0;
 
     const missions = analysis?.missions ?? [];
     const completed = new Set(state.completedAwardKeys ?? []);
+    const awardPrefix = notebookAwardPrefix(state.notebookPath);
     const isMissionClaimed = (missionId: string): boolean =>
-      completed.has(`mission:${missionId}`);
+      completed.has(`${awardPrefix}mission:${missionId}`);
     const openMissions = missions.filter(m => !isMissionClaimed(m.id));
 
     const missionHtml = missions
@@ -259,7 +391,7 @@ export class AssistantSidebar extends Widget {
       .map(
         entry => `
           <li class="flowquest-awardLogEntry">
-            <span class="flowquest-awardPoints">+${entry.points}</span>
+            <span class="flowquest-awardPoints">+${entry.xp}</span>
             <span class="flowquest-awardLabel">${escapeHtml(entry.label)}</span>
           </li>
         `
@@ -279,26 +411,6 @@ export class AssistantSidebar extends Widget {
               ${this._analyzing ? 'Scanning…' : '🔄 Re-scan'}
             </button>
           </div>
-
-          <div class="flowquest-xpGrid">
-            <div class="flowquest-xpCard flowquest-xpCard-exploration">
-              <span class="flowquest-xpCardIcon">⭐</span>
-              <div>
-                <div class="flowquest-xpCardValue">${xp}</div>
-                <div class="flowquest-xpCardLabel">Total XP</div>
-              </div>
-            </div>
-            <div class="flowquest-xpCard flowquest-xpCard-stabilization">
-              <span class="flowquest-xpCardIcon">🎯</span>
-              <div>
-                <div class="flowquest-xpCardValue">${openMissions.length}</div>
-                <div class="flowquest-xpCardLabel">Open Missions</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="flowquest-card">
           <div class="flowquest-cardHead">
             <div class="flowquest-cardTitle">Missions</div>
             <div class="flowquest-dim">${missions.length} total · ${openMissions.length} open</div>
@@ -334,7 +446,7 @@ export class AssistantSidebar extends Widget {
           </div>
           ${
             this._nextSteps
-              ? `<div class="flowquest-block">${escapeHtml(this._nextSteps)}</div>`
+              ? `<div class="flowquest-block flowquest-md">${renderMarkdown(this._nextSteps)}</div>`
               : '<div class="flowquest-dim">Get three contextual next-step ideas grounded in your notebook.</div>'
           }
         </div>
@@ -343,7 +455,7 @@ export class AssistantSidebar extends Widget {
   }
 
   private renderMissionCard(mission: Mission, claimed: boolean): string {
-    const points = mission.xp ?? mission.health_points ?? 0;
+    const points = mission.xp ?? 0;
     const kindIcon = MISSION_KIND_ICON[mission.kind] ?? '✨';
     const targets = mission.cell_indices.length
       ? `<div class="flowquest-missionTargets">Cells: ${mission.cell_indices
@@ -372,7 +484,7 @@ export class AssistantSidebar extends Widget {
             class="flowquest-btn flowquest-btn-primary"
             data-action="claim"
             data-mission="${escapeHtml(mission.id)}"
-            data-criterion="${escapeHtml(mission.criterion_id)}"
+            data-category="${escapeHtml(mission.kind)}"
             data-points="${points}"
             data-label="${escapeHtml(mission.title)}"
             ${claimed ? 'disabled' : ''}
@@ -382,9 +494,133 @@ export class AssistantSidebar extends Widget {
     `;
   }
 
+  private renderFlowyTab(): string {
+    const flowy = this._flowyQuiz;
+    const generating = this._flowyGenerating;
+    const hasNotebook = this._notebook.hasNotebook;
+
+    const introCard = `
+      <div class="flowquest-card flowquest-flowyIntro">
+        <div class="flowquest-flowyAvatar">${this.flowyMark(56)}</div>
+        <div>
+          <div class="flowquest-cardTitle">Hi, I'm Flowy</div>
+          <div class="flowquest-dim">
+            I keep an eye on your notebook. I will occasionally quiz you to
+            make sure you actually understand what you are doing.
+          </div>
+        </div>
+      </div>
+    `;
+
+    const actionsCard = `
+      <div class="flowquest-card">
+        <div class="flowquest-cardHead">
+          <div class="flowquest-cardTitle">Flowy actions</div>
+        </div>
+        <div class="flowquest-flowyActions">
+          <button type="button" class="flowquest-btn flowquest-btn-primary"
+            data-action="flowy-quiz-selection" ${generating || !hasNotebook ? 'disabled' : ''}>
+            🎯 Quiz me on the active cell
+          </button>
+          <div class="flowquest-dim">
+            Flowy reads your active cell (or the code you last pasted) and writes
+            a fresh multiple-choice question about it. Correct answers earn XP.
+          </div>
+        </div>
+      </div>
+    `;
+
+    let challengeCard = '';
+    if (generating && !flowy) {
+      challengeCard = `
+        <div class="flowquest-card">
+          ${thinkingHtml('Flowy is writing a question…')}
+        </div>
+      `;
+    } else if (this._flowyError) {
+      challengeCard = `
+        <div class="flowquest-card">
+          <div class="flowquest-inlineError">
+            <div class="flowquest-inlineErrorHead">
+              <span class="flowquest-inlineErrorIcon">⚠️</span>
+              <span>${escapeHtml(this._flowyError)}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (flowy) {
+      challengeCard = this.renderFlowyChallenge(flowy);
+    }
+
+    return `
+      <section class="flowquest-tabPanel">
+        ${introCard}
+        ${actionsCard}
+        ${challengeCard}
+      </section>
+    `;
+  }
+
+  private renderFlowyChallenge(flowy: FlowyQuiz): string {
+    const quiz = flowy.quiz;
+    const selected = flowy.selectedIndex;
+    const locked = flowy.answeredCorrectly;
+    const optionsHtml = quiz.options
+      .map((option, idx) => {
+        let optionClass = 'flowquest-quizOption';
+        if (selected === idx) {
+          optionClass += idx === quiz.correctIndex ? ' is-correct' : ' is-wrong';
+        } else if (locked && idx === quiz.correctIndex) {
+          optionClass += ' is-correct';
+        }
+        return `
+          <li>
+            <button type="button" class="${optionClass}" data-action="flowy-answer" data-index="${idx}" ${
+              locked ? 'disabled' : ''
+            }>
+              <span class="flowquest-quizOptionLetter">${String.fromCharCode(65 + idx)}</span>
+              <span class="flowquest-quizOptionText">${escapeHtml(option)}</span>
+            </button>
+          </li>
+        `;
+      })
+      .join('');
+
+    const feedback =
+      selected !== null
+        ? flowy.answeredCorrectly
+          ? `<div class="flowquest-quizFeedback is-correct"><span class="flowquest-quizFeedbackIcon">✓</span><span><strong>Correct.</strong> ${escapeHtml(
+              quiz.explanation
+            )}</span></div>`
+          : `<div class="flowquest-quizFeedback is-wrong"><span class="flowquest-quizFeedbackIcon">✗</span><span><strong>Not quite.</strong> ${escapeHtml(
+              quiz.options[quiz.correctIndex] ?? ''
+            )} is the right answer. ${escapeHtml(quiz.explanation)}</span></div>`
+        : '';
+
+    const xpLine = flowy.awardedXp
+      ? `<div class="flowquest-quizXp">+${flowy.awardedXp} XP earned</div>`
+      : '';
+
+    return `
+      <div class="flowquest-card">
+        <div class="flowquest-cardHead">
+          <div class="flowquest-cardTitle">${this.flowyMark(24)} Flowy's challenge</div>
+        </div>
+        <pre class="flowquest-flowySource">${escapeHtml(flowy.source)}</pre>
+        <div class="flowquest-quizQuestion">${escapeHtml(quiz.question)}</div>
+        <ul class="flowquest-quizOptions">${optionsHtml}</ul>
+        ${feedback}
+        ${xpLine}
+        <div class="flowquest-actionsRow">
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="flowy-dismiss">Dismiss</button>
+        </div>
+      </div>
+    `;
+  }
+
   private renderChatTab(): string {
     const disabled = !this._status.configured || this._phase === 'loading';
-    const statusClass = this._status.configured ? 'is-live' : 'is-missing';
+    const configured = this._status.configured;
     const items = [...this._messages];
     if (this._phase === 'loading') {
       items.push({
@@ -394,88 +630,129 @@ export class AssistantSidebar extends Widget {
         includeInHistory: false
       });
     }
-    const messagesHtml = items
+
+    // Only show real conversation turns in the thread; the canned welcome is
+    // replaced by a friendlier Flowy empty-state below.
+    const realTurns = items.filter(m => m.includeInHistory || m.meta === 'Waiting for model response');
+    const hasConversation = realTurns.length > 0;
+
+    const messagesHtml = realTurns
       .map(message => {
-        const bubbleClass = message.role === 'user' ? 'is-user' : 'is-assistant';
-        const label = message.role === 'user' ? 'You' : 'FlowQuest';
+        const isUser = message.role === 'user';
         const isThinking =
-          message.role === 'assistant' &&
-          message.meta === 'Waiting for model response';
+          message.role === 'assistant' && message.meta === 'Waiting for model response';
         const bubbleContent = isThinking
           ? thinkingHtml('Thinking…')
-          : escapeHtml(message.content);
+          : isUser
+            ? escapeHtml(message.content)
+            : `<div class="flowquest-md">${renderMarkdown(message.content)}</div>`;
         return `
-          <article class="flowquest-message ${bubbleClass}">
-            <div class="flowquest-messageLabel">${escapeHtml(label)}</div>
-            <div class="flowquest-bubble ${bubbleClass}">${bubbleContent}</div>
-            <div class="flowquest-messageMeta">${escapeHtml(message.meta)}</div>
+          <article class="flowquest-msg ${isUser ? 'is-user' : 'is-flowy'}">
+            ${
+              isUser
+                ? ''
+                : `<span class="flowquest-msgAvatar">${this.flowyMark(22)}</span>`
+            }
+            <div class="flowquest-msgBubble">${bubbleContent}</div>
           </article>
         `;
       })
       .join('');
 
+    const emptyState = `
+      <div class="flowquest-chatEmpty">
+        <span class="flowquest-chatEmptyAvatar">${this.flowyMark(60)}</span>
+        <div class="flowquest-chatEmptyTitle">Ask Flowy anything</div>
+        <div class="flowquest-dim">
+          I can see your whole notebook — every cell, its outputs, and which
+          cell you're on right now. Ask away and I'll answer in full context.
+        </div>
+        <div class="flowquest-chatStarters">
+          ${this.renderStarter('Explain the cell I’m on', 'starter-explain')}
+          ${this.renderStarter('What should I do next?', 'starter-next')}
+          ${this.renderStarter('Find problems in my notebook', 'starter-issues')}
+        </div>
+      </div>
+    `;
+
+    const banner = configured
+      ? ''
+      : `<div class="flowquest-chatNotice">
+           ⚠️ No model configured yet.
+           <button type="button" class="flowquest-linkBtn" data-action="open-settings">Open Settings</button>
+         </div>`;
+
     return `
       <section class="flowquest-tabPanel flowquest-chatPanel">
-        <div class="flowquest-chatHeader">
-          <div>
-            <div class="flowquest-eyebrow">Notebook chat</div>
-            <div class="flowquest-cardTitle">Ask anything · context is auto-attached</div>
-          </div>
-          <div class="flowquest-chatHeaderMeta">
-            <span class="flowquest-pill ${statusClass}">${escapeHtml(
-              this._status.configured ? 'live' : 'missing'
-            )}</span>
-            <span class="flowquest-pill flowquest-pill-muted">${escapeHtml(this._status.model)}</span>
-            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="clear-chat">New</button>
-          </div>
+        ${banner}
+        <div class="flowquest-thread">
+          ${hasConversation ? messagesHtml : emptyState}
         </div>
 
-        <div class="flowquest-thread">${messagesHtml}</div>
-
         <div class="flowquest-compose">
-          ${this.renderAttachedContext()}
-          <textarea class="flowquest-textarea" data-field="prompt" placeholder="Ask FlowQuest…">${escapeHtml(
-            this._prompt
-          )}</textarea>
-          <div class="flowquest-actionsRow">
-            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="ask" ${
+          ${this.renderContextChip()}
+          <div class="flowquest-composeRow">
+            <textarea
+              class="flowquest-composeInput"
+              data-field="prompt"
+              rows="1"
+              placeholder="Message Flowy…"
+              ${disabled ? 'disabled' : ''}
+            >${escapeHtml(this._prompt)}</textarea>
+            <button type="button" class="flowquest-sendBtn" data-action="ask" title="Send" ${
               disabled ? 'disabled' : ''
-            }>Ask</button>
-            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="clear-prompt">Clear</button>
+            }>➤</button>
           </div>
-          <div class="flowquest-dim">${escapeHtml(this._meta)}</div>
+          <div class="flowquest-composeFoot">
+            <span class="flowquest-dim">${escapeHtml(this._meta || this._status.model || 'no model')}</span>
+            ${
+              hasConversation
+                ? '<button type="button" class="flowquest-linkBtn" data-action="clear-chat">New chat</button>'
+                : ''
+            }
+          </div>
         </div>
       </section>
     `;
   }
 
-  private renderAttachedContext(): string {
-    const notebook = this._notebook;
-    const badges: string[] = [];
-    if (notebook.contextMode === 'active-cell') {
-      badges.push(`Cell ${notebook.activeCellIndex + 1}`);
-      badges.push(notebook.activeCellType);
-    } else if (notebook.contextMode === 'whole-notebook') {
-      badges.push('Notebook');
-      badges.push(`${notebook.cellCount} cells`);
-    } else {
-      badges.push('Workspace');
-    }
-    badges.push(notebook.kernelStatus);
+  private renderStarter(label: string, action: string): string {
+    return `<button type="button" class="flowquest-starterChip" data-action="${action}">${escapeHtml(
+      label
+    )}</button>`;
+  }
 
-    return `
-      <div class="flowquest-attached">
-        <div class="flowquest-attachedHead">
-          <div>
-            <div class="flowquest-attachedTitle">Auto-attached context</div>
-            <div class="flowquest-dim">Appended behind your message.</div>
-          </div>
-          <div class="flowquest-attachedBadges">
-            ${badges.map(b => `<span class="flowquest-pill flowquest-pill-muted">${escapeHtml(b)}</span>`).join('')}
-          </div>
+  /** Small Flowy mark for chat avatars / empty-state, reusing the sprite. */
+  private flowyMark(size: number): string {
+    return `<span class="flowquest-flowyMark">${renderFlowySvg('happy', {
+      uid: `${this._flowyUid}-${size}`,
+      width: size
+    })}</span>`;
+  }
+
+  /** Compact, single-line context indicator — what Flowy will look at. */
+  private renderContextChip(): string {
+    const notebook = this._notebook;
+    if (!notebook.hasNotebook) {
+      return `
+        <div class="flowquest-contextChip" title="Flowy automatically sees this context">
+          <span class="flowquest-contextChipIcon">🗂️</span>
+          <span class="flowquest-contextChipLabel">Workspace</span>
+          <span class="flowquest-contextChipHint">no notebook</span>
         </div>
-        <div class="flowquest-dim">${escapeHtml(notebook.path)}</div>
-        <div class="flowquest-preview">${escapeHtml(notebook.attachmentPreview)}</div>
+      `;
+    }
+    const cellNote =
+      notebook.activeCellIndex >= 0
+        ? `cell ${notebook.activeCellIndex + 1} active`
+        : 'no active cell';
+    return `
+      <div class="flowquest-contextChip" title="Flowy sees your whole notebook plus which cell is active">
+        <span class="flowquest-contextChipIcon">📓</span>
+        <span class="flowquest-contextChipLabel">${escapeHtml(notebook.notebookName)}</span>
+        <span class="flowquest-contextChipHint">${escapeHtml(
+          `${notebook.cellCount} cells · ${cellNote}`
+        )}</span>
       </div>
     `;
   }
@@ -485,6 +762,13 @@ export class AssistantSidebar extends Widget {
     if (textarea) {
       textarea.oninput = event => {
         this._prompt = (event.currentTarget as HTMLTextAreaElement).value;
+      };
+      // Enter sends; Shift+Enter inserts a newline.
+      textarea.onkeydown = event => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          void this.submitPrompt();
+        }
       };
     }
 
@@ -504,6 +788,10 @@ export class AssistantSidebar extends Widget {
           this.callbacks.openSettings('global');
           return;
         }
+        if (action === 'handbook') {
+          this.callbacks.openHandbook();
+          return;
+        }
         if (action === 'analyze') {
           void this.callbacks.refreshAnalysis();
           return;
@@ -513,24 +801,20 @@ export class AssistantSidebar extends Widget {
           void this.submitPrompt();
           return;
         }
-        if (action === 'clear-prompt') {
-          this._prompt = '';
-          this.render();
-          return;
-        }
         if (action === 'clear-chat') {
           this._messages = [INITIAL_MESSAGE];
           this._phase = 'idle';
           this._meta = this._status.message;
+          this.callbacks.saveChat([]);
           this.render();
           return;
         }
         if (action === 'claim') {
           const missionId = element.dataset.mission ?? '';
-          const criterionId = element.dataset.criterion ?? 'workflow_clarity';
+          const category = element.dataset.category ?? 'exploration';
           const points = Number(element.dataset.points ?? '0');
           const label = element.dataset.label ?? missionId;
-          void this.claim(missionId, criterionId, points, label);
+          void this.claim(missionId, category, points, label);
           return;
         }
         if (action === 'focus-cell') {
@@ -544,13 +828,50 @@ export class AssistantSidebar extends Widget {
           void this.loadNextSteps();
           return;
         }
+        if (action === 'flowy-quiz-selection') {
+          void this.startActiveCellQuiz();
+          return;
+        }
+        if (action === 'flowy-answer') {
+          const index = Number(element.dataset.index ?? '-1');
+          if (index >= 0) {
+            void this.answerFlowyQuiz(index);
+          }
+          return;
+        }
+        if (action === 'flowy-dismiss') {
+          this._flowyQuiz = null;
+          this._flowyError = null;
+          this.render();
+          return;
+        }
+        if (action === 'open-settings') {
+          this.callbacks.openSettings('global');
+          return;
+        }
+        if (action === 'starter-explain') {
+          void this.askAboutActiveCell();
+          return;
+        }
+        if (action === 'starter-next') {
+          void this.submitPrompt(
+            'Based on my current notebook, what should I work on next? Give me three concrete suggestions.'
+          );
+          return;
+        }
+        if (action === 'starter-issues') {
+          void this.submitPrompt(
+            'Look at my notebook and point out any problems, risks, or things I should double-check.'
+          );
+          return;
+        }
       };
     });
   }
 
   private async claim(
     missionId: string,
-    criterionId: string,
+    category: string,
     points: number,
     label: string
   ): Promise<void> {
@@ -559,14 +880,15 @@ export class AssistantSidebar extends Widget {
         method: 'POST',
         body: JSON.stringify({
           state: this.callbacks.getState(),
+          notebookPath: this.callbacks.getNotebookPath(),
           missionId,
-          criterionId,
-          points,
+          category,
+          xp: points,
           label
         })
       });
       if (response.outcome?.granted) {
-        this.flashToast(`+${response.outcome.pointsAwarded ?? 0} XP`);
+        this.flashToast(`+${response.outcome.xpAwarded ?? 0} XP`);
       }
       this._questState = response.state;
       this.callbacks.applyState(response.state);
@@ -585,7 +907,10 @@ export class AssistantSidebar extends Widget {
     try {
       const response = await apiRequest<NextStepsResponse>('piis-assistant/next-steps', {
         method: 'POST',
-        body: JSON.stringify({ analysis: this._analysis })
+        body: JSON.stringify({
+          analysis: this._analysis,
+          difficulty: this._questState?.difficulty
+        })
       });
       this._nextSteps = response.suggestions;
     } catch (error) {
@@ -594,6 +919,89 @@ export class AssistantSidebar extends Widget {
       this._loadingNextSteps = false;
       this.render();
     }
+  }
+
+  /**
+   * Public entry point: Flowy caught a paste and the user tapped it. Open the
+   * Flowy tab and generate a spontaneous quiz about the pasted code.
+   */
+  async startPasteQuiz(code: string): Promise<void> {
+    this._tab = 'flowy';
+    await this.generateFlowyQuiz(code, 'Pasted code');
+  }
+
+  /** Quiz the learner on the active cell's source (Flowy tab button). */
+  private async startActiveCellQuiz(): Promise<void> {
+    const source = this._notebook.activeCellSource;
+    if (!source || !source.trim()) {
+      this.flashToast('Focus a cell with code first.');
+      return;
+    }
+    await this.generateFlowyQuiz(source, `Cell ${this._notebook.activeCellIndex + 1}`);
+  }
+
+  private async generateFlowyQuiz(code: string, sourceLabel: string): Promise<void> {
+    this._flowyGenerating = true;
+    this._flowyError = null;
+    this._flowyQuiz = null;
+    this.render();
+    try {
+      const quiz = await apiRequest<QuizContent>('piis-assistant/flowy/quiz', {
+        method: 'POST',
+        body: JSON.stringify({
+          code,
+          context: this._notebook.attachedPromptContext,
+          difficulty: this._questState?.difficulty
+        })
+      });
+      this._flowyQuiz = {
+        challengeId: `flowy-${Date.now()}`,
+        source: code.length > 600 ? `${code.slice(0, 600)}…` : code,
+        quiz,
+        selectedIndex: null,
+        answeredCorrectly: false,
+        awardedXp: 0
+      };
+    } catch (error) {
+      this._flowyError = toFriendlyError(error).message;
+    } finally {
+      this._flowyGenerating = false;
+      this.render();
+    }
+    void sourceLabel;
+  }
+
+  private async answerFlowyQuiz(selectedIndex: number): Promise<void> {
+    const flowy = this._flowyQuiz;
+    if (!flowy || flowy.answeredCorrectly) {
+      return;
+    }
+    const correct = selectedIndex === flowy.quiz.correctIndex;
+    flowy.selectedIndex = selectedIndex;
+    flowy.answeredCorrectly = correct;
+    this.render();
+    try {
+      const response = await apiRequest<ClaimResponse & { correct: boolean }>(
+        'piis-assistant/flowy/quiz/answer',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            challengeId: flowy.challengeId,
+            correct,
+            notebookPath: this.callbacks.getNotebookPath()
+          })
+        }
+      );
+      if (response.outcome?.granted) {
+        const awarded = response.outcome.xpAwarded ?? 0;
+        flowy.awardedXp += awarded;
+        this.flashToast(`+${awarded} XP · ${correct ? 'Flowy quiz correct' : 'Flowy quiz'}`);
+      }
+      this.callbacks.applyState(response.state);
+    } catch (error) {
+      this.flashToast(`Could not record answer: ${(error as Error).message}`);
+    }
+    this.render();
   }
 
   private historyPayload(): Array<{ role: 'user' | 'assistant'; content: string }> {
@@ -652,6 +1060,7 @@ export class AssistantSidebar extends Widget {
       if (!overridePrompt) {
         this._prompt = '';
       }
+      this.persistChat();
     } catch (error) {
       this._phase = 'error';
       const friendly = toFriendlyError(error);
@@ -671,15 +1080,21 @@ export class AssistantSidebar extends Widget {
   private _analyzing = false;
   private _loadingNextSteps = false;
   private _messages: ConversationMessage[] = [INITIAL_MESSAGE];
+  private _chatNotebookPath = '';
   private _meta = 'Status has not been loaded yet.';
   private _nextSteps = '';
   private _notebook: NotebookContext = EMPTY_NOTEBOOK;
   private _phase: SidebarPhase = 'idle';
   private _prompt = '';
+  private _renderedTab: SidebarTab | null = null;
   private _questState: QuestState | null = null;
   private _status: EndpointStatus = EMPTY_STATUS;
   private _tab: SidebarTab = 'quest';
   private _toast: string | null = null;
+  private _flowyQuiz: FlowyQuiz | null = null;
+  private _flowyGenerating = false;
+  private _flowyError: string | null = null;
+  private readonly _flowyUid = `fqs-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export type { FlatIssue, InitializeResponse };
+export type { FlatIssue };

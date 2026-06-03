@@ -4,11 +4,11 @@
  * Modal-style overlay opened from the sidebar header or the in-notebook
  * banner. Two tabs:
  *
- *   1. Global — model picker, base URL, API key. Persisted server-side
- *      under ~/.flowquest/settings.json by the SettingsSaveHandler.
- *   2. Notebook — difficulty selector and a destructive "wipe data" button.
- *      These mutations go through the existing per-notebook state pipeline
- *      and end up in metadata.flowquest as usual.
+ *   1. Global — model picker, base URL, API key, and the global XP/level
+ *      reset. The endpoint settings are persisted server-side under
+ *      ~/.flowquest/settings.json by the SettingsSaveHandler.
+ *   2. Notebook — difficulty selector and a "clear this notebook's checkpoints"
+ *      button. These mutations go through the per-notebook state pipeline.
  */
 
 import { apiRequest, escapeHtml } from './api';
@@ -20,6 +20,7 @@ const HOST_CLASS = 'flowquest-settingsHost';
 export interface SettingsPanelCallbacks {
   getState: () => QuestState;
   applyState: (state: QuestState) => void;
+  setDifficulty: (level: DifficultyLevel) => void;
   flashToast: (message: string) => void;
 }
 
@@ -60,6 +61,7 @@ export class SettingsPanel {
   private loading = false;
   private saving = false;
   private wipeConfirm = false;
+  private wipeScope: 'notebook' | 'global' = 'notebook';
 
   constructor(private callbacks: SettingsPanelCallbacks) {}
 
@@ -137,31 +139,28 @@ export class SettingsPanel {
     }
   }
 
-  private async setDifficulty(level: DifficultyLevel): Promise<void> {
-    try {
-      const response = await apiRequest<{ state: QuestState }>(
-        'piis-assistant/state/difficulty',
-        {
-          method: 'POST',
-          body: JSON.stringify({ state: this.callbacks.getState(), difficulty: level })
-        }
-      );
-      this.callbacks.applyState(response.state);
-      this.callbacks.flashToast(`Difficulty set to ${level}.`);
-    } catch (error) {
-      this.callbacks.flashToast(`Could not change difficulty: ${(error as Error).message}`);
-    }
+  private setDifficulty(level: DifficultyLevel): void {
+    this.callbacks.setDifficulty(level);
+    this.callbacks.flashToast(`Difficulty set to ${level}.`);
     this.render();
   }
 
   private async wipe(): Promise<void> {
     try {
+      const state = this.callbacks.getState();
       const response = await apiRequest<{ state: QuestState }>('piis-assistant/state/wipe', {
         method: 'POST',
-        body: JSON.stringify({ state: this.callbacks.getState(), keepDifficulty: true })
+        body: JSON.stringify({
+          scope: this.wipeScope,
+          notebookPath: state?.notebookPath ?? ''
+        })
       });
       this.callbacks.applyState(response.state);
-      this.callbacks.flashToast('Notebook FlowQuest data wiped.');
+      this.callbacks.flashToast(
+        this.wipeScope === 'global'
+          ? 'All FlowQuest progress reset.'
+          : "This notebook's checkpoints reset."
+      );
       this.wipeConfirm = false;
     } catch (error) {
       this.callbacks.flashToast(`Wipe failed: ${(error as Error).message}`);
@@ -226,6 +225,7 @@ export class SettingsPanel {
           return;
         }
         if (action === 'wipe-confirm') {
+          this.wipeScope = (element.dataset.scope as 'notebook' | 'global') ?? 'notebook';
           this.wipeConfirm = true;
           this.render();
           return;
@@ -278,6 +278,9 @@ export class SettingsPanel {
       return '<div class="flowquest-dim">Loading settings…</div>';
     }
     const settings = this.settings;
+    const progressState = this.callbacks.getState();
+    const level = progressState?.level ?? 1;
+    const xp = progressState?.xpTotal ?? 0;
     const storage = settings?.apiKeyStorage ?? 'none';
     const keychainAvailable = Boolean(settings?.keychainAvailable);
 
@@ -352,14 +355,38 @@ export class SettingsPanel {
         </div>
         <div class="flowquest-dim">${fileLine}</div>
       </section>
+
+      <section class="flowquest-settingsSection flowquest-settingsDanger">
+        <div class="flowquest-eyebrow">Reset progress</div>
+        <p class="flowquest-dim">
+          XP and levels are <strong>global</strong> — shared across every
+          notebook. You're currently <strong>Lv ${level}</strong> with
+          <strong>${xp} XP</strong>.
+        </p>
+        <div class="flowquest-statRow">
+          <span class="flowquest-pill flowquest-pill-muted">Lv ${level}</span>
+          <span class="flowquest-pill flowquest-pill-muted">${xp} XP total</span>
+        </div>
+        ${
+          this.wipeConfirm && this.wipeScope === 'global'
+            ? `
+              <div class="flowquest-confirmRow">
+                <span>Reset ALL global XP and levels? This cannot be undone.</span>
+                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-apply">Yes, reset everything</button>
+                <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="wipe-cancel">Cancel</button>
+              </div>
+            `
+            : `<div class="flowquest-actionsRow">
+                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-confirm" data-scope="global">🧹 Reset all XP &amp; levels</button>
+              </div>`
+        }
+      </section>
     `;
   }
 
   private renderNotebookTab(): string {
     const state = this.callbacks.getState();
     const currentDifficulty = state?.difficulty ?? 'medium';
-    const points = state?.pointsEarned ?? 0;
-    const reflections = state?.reflections?.length ?? 0;
 
     const difficultyHtml = DIFFICULTY_OPTIONS.map(option => {
       const active = option.value === currentDifficulty;
@@ -378,36 +405,32 @@ export class SettingsPanel {
 
     return `
       <section class="flowquest-settingsSection">
-        <div class="flowquest-eyebrow">Difficulty</div>
+        <div class="flowquest-eyebrow">Difficulty (this notebook)</div>
         <p class="flowquest-dim">
           Affects every LLM call for this notebook: explanations, quiz wording,
-          and reflective questions.
+          and reflective questions. Stored in this notebook's metadata.
         </p>
         <div class="flowquest-difficultyGrid">${difficultyHtml}</div>
       </section>
 
       <section class="flowquest-settingsSection flowquest-settingsDanger">
-        <div class="flowquest-eyebrow">Danger zone</div>
+        <div class="flowquest-eyebrow">Clear this notebook</div>
         <p class="flowquest-dim">
-          Wipe FlowQuest progress for this notebook only. Removes claimed
-          missions, reflections, and quiz answers. The notebook code and
-          markdown are untouched. Difficulty is preserved.
+          Clears this notebook's checkpoints (missions, quizzes, reflections) so
+          they can be re-earned. Your global XP and levels stay untouched — reset
+          those from the <strong>Global</strong> tab.
         </p>
-        <div class="flowquest-statRow">
-          <span class="flowquest-pill flowquest-pill-muted">${points} pts earned</span>
-          <span class="flowquest-pill flowquest-pill-muted">${reflections} reflections</span>
-        </div>
         ${
-          this.wipeConfirm
+          this.wipeConfirm && this.wipeScope === 'notebook'
             ? `
               <div class="flowquest-confirmRow">
-                <span>Wipe all FlowQuest data for this notebook?</span>
-                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-apply">Yes, wipe</button>
+                <span>Clear this notebook's checkpoints so they can be re-earned? Your global XP stays.</span>
+                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-apply">Yes, clear notebook</button>
                 <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="wipe-cancel">Cancel</button>
               </div>
             `
             : `<div class="flowquest-actionsRow">
-                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-confirm">🧹 Wipe FlowQuest data</button>
+                <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="wipe-confirm" data-scope="notebook">↩️ Clear this notebook's checkpoints</button>
               </div>`
         }
       </section>

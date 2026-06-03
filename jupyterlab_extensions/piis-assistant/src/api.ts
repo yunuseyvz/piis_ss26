@@ -59,6 +59,20 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Per-notebook prefix for idempotency award keys, mirroring the backend's
+ * `handlers._notebook_ns` (`"<notebookPath>::"`).
+ *
+ * XP pools globally, but a mission / quiz / reflection is earnable once *per
+ * notebook*. The backend namespaces award keys with this prefix; the frontend
+ * must use the same prefix when it checks whether something is already
+ * claimed, or the comparison silently never matches.
+ */
+export function notebookAwardPrefix(notebookPath: string | null | undefined): string {
+  const path = (notebookPath ?? '').trim();
+  return path ? `${path}::` : '';
+}
+
 export function clipText(value: string, limit = 1200): string {
   const normalized = value.replace(/\s+$/g, '').trim();
   if (!normalized) {

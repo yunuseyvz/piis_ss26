@@ -8,7 +8,6 @@ from typing import Any
 
 from openai import OpenAI
 
-from . import criteria
 from .settings import resolve_endpoint
 
 
@@ -189,10 +188,6 @@ def _clip_text(value: str, limit: int = 1400) -> str:
     if len(stripped) <= limit:
         return stripped
     return f"{stripped[: limit - 1]}…"
-    stripped = value.strip()
-    if len(stripped) <= limit:
-        return stripped
-    return f"{stripped[: limit - 1]}…"
 
 
 def _sanitize_history(history: Any) -> list[dict[str, str]]:
@@ -293,10 +288,14 @@ def chat_payload(
         {
             "role": "system",
             "content": (
-                "You are FlowQuest Assistant inside JupyterLab. Be concise, direct, and useful. "
-                "The latest user message may include an automatically appended notebook-context section. Use that appended context as primary grounding. "
-                "If the user asks about a cell or output, ground the answer in that context. "
-                "If important notebook context is missing, say so plainly."
+                "You are Flowy, FlowQuest's friendly notebook companion inside JupyterLab. "
+                "Be concise, direct, and useful. "
+                "The latest user message includes an automatically appended context section "
+                "containing the user's ENTIRE notebook (every cell, in order, with the "
+                "currently active cell marked) plus the active cell's source and output. "
+                "Treat this as your full picture of what the user is working on and ground "
+                "every answer in it. When the user says 'this cell' or 'here', they mean the "
+                "cell marked as active. If something genuinely isn't in the context, say so plainly."
             ),
         }
     ]
@@ -437,14 +436,12 @@ def next_steps_payload(
 
     region_counts = analysis.get("regionCounts") or {}
     issues = analysis.get("issues") or []
-    health = analysis.get("health")
     issue_lines = "\n".join(
         f"- cell {i['cell_index']} [{i['severity']}] {i['kind']}: {i['message']}" for i in issues[:20]
     )
     region_line = ", ".join(f"{k}:{v}" for k, v in region_counts.items() if v)
 
     user_prompt = (
-        f"Notebook health: {health}/100\n"
         f"Region distribution: {region_line or 'unknown'}\n"
         f"Open issues:\n{issue_lines or '- none'}\n\n"
         "Suggest three next steps."
@@ -462,25 +459,8 @@ def next_steps_payload(
 
 
 # ---------------------------------------------------------------------------
-# Quiz generation
+# Quiz JSON helpers + fallbacks (shared with activities.py)
 # ---------------------------------------------------------------------------
-
-
-_QUIZ_SYSTEM = (
-    "You are FlowQuest's quiz master. Given a cell from a Jupyter notebook, "
-    "generate exactly one multiple-choice question that tests whether a reader "
-    "understands that cell in context. Output MUST be valid JSON with this "
-    "exact shape, no prose, no markdown fences:\n"
-    '{"question": "<one sentence question>", '
-    '"options": ["<A>", "<B>", "<C>", "<D>"], '
-    '"correctIndex": <0-3 integer>, '
-    '"explanation": "<1-2 sentence explanation of why that choice is correct>"}\n'
-    "Rules:\n"
-    "- exactly four options, roughly the same length\n"
-    "- plausible distractors, not obviously wrong\n"
-    "- the question must be answerable from the provided cell and context\n"
-    "- keep everything under 220 characters per field\n"
-)
 
 
 def _safe_json_object(text: str) -> dict[str, Any]:
@@ -645,252 +625,3 @@ def _fallback_quiz(region: str) -> dict[str, Any]:
         "explanation": template["explanation"],
     }
 
-
-def quiz_payload(
-    slot: dict[str, Any],
-    cells: list[dict[str, Any]],
-    start_path: str | Path | None = None,
-    difficulty: str = "medium",
-) -> dict[str, Any]:
-    client = AssistantClient.from_env(start_path=start_path)
-    if client is None:
-        raise RuntimeError("Missing endpoint configuration.")
-
-    topic = str(slot.get("topic") or "this cell")
-    region = str(slot.get("region") or "other")
-    anchor_id = str(slot.get("anchorCellId") or "")
-    context_ids = [str(cid) for cid in (slot.get("contextCellIds") or []) if cid]
-
-    def _find(cid: str) -> dict[str, Any] | None:
-        for cell in cells:
-            if str(cell.get("cellId")) == cid:
-                return cell
-        return None
-
-    anchor_cell = _find(anchor_id)
-    if anchor_cell is None:
-        raise ValueError("Anchor cell for quiz slot was not found.")
-
-    context_blocks: list[str] = []
-    for cid in context_ids:
-        cell = _find(cid)
-        if cell is None:
-            continue
-        source = _clip_text(str(cell.get("sourcePreview") or ""), 600)
-        if not source:
-            continue
-        tag = f"Cell {cell.get('index') + 1 if isinstance(cell.get('index'), int) else '?'} ({cell.get('region')})"
-        context_blocks.append(f"{tag}:\n{source}")
-
-    focus_source = _clip_text(str(anchor_cell.get("sourcePreview") or ""), 1600) or "[empty cell]"
-
-    user_prompt = (
-        f"Region: {region}. Topic: {topic}.\n\n"
-        f"Surrounding cells:\n{chr(10).join(context_blocks) or '[none]'}\n\n"
-        f"Focus cell (write the question about this one):\n{focus_source}\n\n"
-        'Return the JSON object only. Start the reply with "{" and end with "}". No prose.\n'
-        'Example shape: {"question":"...","options":["A","B","C","D"],'
-        '"correctIndex":0,"explanation":"..."}'
-    )
-
-    profile = _difficulty_profile(difficulty)
-    system_prompt = _QUIZ_SYSTEM + _difficulty_suffix(profile, "quiz")
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    last_error: Exception | None = None
-    raw: dict[str, Any] | None = None
-    raw_response = ""
-    for attempt in range(3):
-        try:
-            raw_response = client.chat(
-                messages=messages,
-                temperature=0.1 if attempt else 0.35,
-                max_tokens=500,
-                response_format={"type": "json_object"} if attempt == 0 else None,
-            )
-            raw = _safe_json_object(raw_response)
-            break
-        except (ValueError, json.JSONDecodeError) as exc:
-            last_error = exc
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        user_prompt
-                        + "\n\nReminder: reply with a single valid JSON object only. "
-                        "Do not include any markdown, comments, or explanations outside the JSON. "
-                        "Your previous reply could not be parsed."
-                    ),
-                },
-            ]
-
-    if raw is None:
-        # Last resort: deterministic template so the UI always has something.
-        fallback = _fallback_quiz(region)
-        fallback["model"] = f"{client.model} (fallback)"
-        fallback["fallbackReason"] = (
-            f"Could not parse quiz JSON from model after 3 attempts: {last_error}"
-        )
-        return fallback
-
-    try:
-        normalized = _normalize_quiz(raw)
-    except ValueError:
-        normalized = _fallback_quiz(region)
-        normalized["model"] = f"{client.model} (fallback)"
-        return normalized
-
-    normalized["model"] = client.model
-    return normalized
-
-
-# ---------------------------------------------------------------------------
-# Baseline Notebook Health scoring
-# ---------------------------------------------------------------------------
-
-
-_BASELINE_SYSTEM = (
-    "You are FlowQuest's notebook auditor. You will be given a notebook "
-    "summary and a list of criteria. Rate the notebook on each criterion "
-    "from 0 (absent) to 10 (excellent) and write one short sentence of notes. "
-    "Reply with a single JSON object only — no prose, no markdown fences. "
-    "Shape: "
-    '{"scores": {"<criterion_id>": <int 0-10>, ...}, "notes": "<=400 chars"}. '
-    "Every criterion id must be present."
-)
-
-
-def _build_notebook_summary(analysis: dict[str, Any]) -> str:
-    """Produce a compact outline for the baseline scorer."""
-    cells = analysis.get("cells") or []
-    lines: list[str] = []
-    lines.append(
-        f"Cells: {len(cells)} total, {analysis.get('summary', {}).get('code_cells', 0)} code, "
-        f"{analysis.get('summary', {}).get('markdown_cells', 0)} markdown."
-    )
-    region_counts = analysis.get("regionCounts") or {}
-    region_line = ", ".join(f"{k}={v}" for k, v in region_counts.items() if v)
-    if region_line:
-        lines.append(f"Regions: {region_line}")
-    issues = analysis.get("issues") or []
-    if issues:
-        issue_counts: dict[str, int] = {}
-        for issue in issues:
-            issue_counts[issue.get("kind", "unknown")] = (
-                issue_counts.get(issue.get("kind", "unknown"), 0) + 1
-            )
-        lines.append(
-            "Issues: "
-            + ", ".join(f"{kind}={count}" for kind, count in sorted(issue_counts.items()))
-        )
-    else:
-        lines.append("Issues: none detected.")
-
-    lines.append("")
-    lines.append("Outline (index | region | one-line summary):")
-    for cell in cells[:60]:
-        lines.append(
-            f"{cell.get('index')} | {cell.get('region')} | {_clip_text(str(cell.get('summary') or ''), 100)}"
-        )
-    return "\n".join(lines)
-
-
-def baseline_health_payload(
-    analysis: dict[str, Any],
-    start_path: str | Path | None = None,
-    difficulty: str = "medium",
-) -> dict[str, Any]:
-    client = AssistantClient.from_env(start_path=start_path)
-    if client is None:
-        raise RuntimeError("Missing endpoint configuration.")
-
-    profile = _difficulty_profile(difficulty)
-    system_prompt = _BASELINE_SYSTEM + _difficulty_suffix(profile, "baseline")
-
-    criterion_lines: list[str] = []
-    for criterion in criteria.HEALTH_CRITERIA:
-        criterion_lines.append(
-            f"- id={criterion.id} | weight={criterion.weight} | {criterion.label}: "
-            f"{criterion.description}"
-        )
-
-    user_prompt = (
-        f"Notebook summary:\n{_build_notebook_summary(analysis)}\n\n"
-        f"Criteria to rate (0-10 each):\n" + "\n".join(criterion_lines)
-        + "\n\nReturn JSON only."
-    )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-
-    raw: dict[str, Any] | None = None
-    last_error: Exception | None = None
-    for attempt in range(3):
-        try:
-            text = client.chat(
-                messages=messages,
-                temperature=0.1 if attempt else 0.2,
-                max_tokens=500,
-                response_format={"type": "json_object"} if attempt == 0 else None,
-            )
-            raw = _safe_json_object(text)
-            break
-        except (ValueError, json.JSONDecodeError) as exc:
-            last_error = exc
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": user_prompt
-                    + "\n\nReminder: reply with a single valid JSON object. "
-                    'Example: {"scores":{"workflow_clarity":6,"execution_consistency":7,...},'
-                    '"notes":"short summary"}',
-                },
-            ]
-
-    scores_raw: dict[str, Any] = {}
-    notes = ""
-    if raw is not None:
-        incoming_scores = raw.get("scores")
-        if isinstance(incoming_scores, dict):
-            scores_raw = incoming_scores
-        notes = str(raw.get("notes") or "")[:800]
-
-    # Normalise scores and compute weighted baseline.
-    cleaned_breakdown: dict[str, int | None] = {}
-    total_score = 0
-    total_weight_used = 0
-    for criterion in criteria.HEALTH_CRITERIA:
-        value = scores_raw.get(criterion.id)
-        try:
-            clamped: int | None = max(0, min(10, int(value))) if value is not None else None
-        except (TypeError, ValueError):
-            clamped = None
-        if clamped is None:
-            # If the LLM omitted a criterion, fall back to 4 (mildly below neutral).
-            clamped = 4
-        cleaned_breakdown[criterion.id] = clamped
-        total_score += clamped * criterion.weight
-        total_weight_used += criterion.weight
-
-    weighted = total_score / max(1, total_weight_used)  # 0..10
-    baseline_health = int(round(weighted * 10))  # 0..100
-
-    if not notes:
-        notes = "LLM baseline scoring fell back to heuristic defaults."
-
-    return {
-        "baselineHealth": baseline_health,
-        "breakdown": cleaned_breakdown,
-        "notes": notes,
-        "model": client.model,
-        "fallback": raw is None,
-        "fallbackError": str(last_error) if (raw is None and last_error is not None) else "",
-    }

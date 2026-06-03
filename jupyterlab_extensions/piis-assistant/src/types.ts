@@ -6,62 +6,58 @@
 export type MessageRole = 'user' | 'assistant';
 export type SidebarPhase = 'idle' | 'loading' | 'ready' | 'error';
 export type ContextMode = 'active-cell' | 'whole-notebook' | 'workspace';
-export type SidebarTab = 'quest' | 'chat';
+export type SidebarTab = 'quest' | 'flowy' | 'chat';
 export type MissionKind =
   | 'exploration'
   | 'understanding'
   | 'stabilization'
   | 'reflection';
 export type IssueSeverity = 'info' | 'warn' | 'error';
-
-export interface CriterionProgress {
-  id: string;
-  label: string;
-  icon: string;
-  weight: number;
-  budget: number;
-  baselineScore: number | null;
-  earned: number;
-  description: string;
-}
+export type DifficultyLevel = 'easy' | 'medium' | 'hard';
 
 export interface AwardLogEntry {
   key: string;
-  criterion: string;
-  points: number;
+  category: MissionKind;
+  xp: number;
   label: string;
   ts: number;
 }
 
+/**
+ * The XP + Levels progression state. Mirrors gamification.public_view().
+ *
+ * Since v4, XP/levels are GLOBAL (user-scoped, owned by the server at
+ * ~/.flowquest/progress.json) and shared across every open notebook.
+ * ``difficulty`` is the one per-notebook field, merged in from the notebook's
+ * metadata.flowquest. ``notebookKey``/``notebookPath`` identify which notebook
+ * the merged view belongs to (used for per-notebook idempotency namespacing).
+ */
 export interface QuestState {
   notebookKey: string;
   notebookPath: string;
   schemaVersion: number;
-  initialized: boolean;
-  baselineHealth: number;
-  baselineBreakdown: Record<string, number | null>;
-  baselineNotes: string;
-  healthPoints: Record<string, number>;
+  xpTotal: number;
+  xpByCategory: Record<MissionKind, number>;
   completedAwardKeys: string[];
+  exploredCellHashes: string[];
   awardLog: AwardLogEntry[];
   reflections: Array<{ cellIndex: number; text: string; ts: number }>;
   quizAttempts: number;
   quizCorrect: number;
   streakDays: number;
   lastActiveTs: number;
-  wonAt: number;
-  difficulty: 'easy' | 'medium' | 'hard';
-  healthScore: number;
-  healthTarget: number;
-  healthRemaining: number;
-  healthProgress: number;
-  healthLabel: string;
+  difficulty: DifficultyLevel;
+  // Derived (computed by the backend)
+  level: number;
   rankTitle: string;
-  pointsEarned: number;
-  pointsAvailable: number;
-  won: boolean;
-  criteria: CriterionProgress[];
-}export interface ConversationMessage {
+  xpIntoLevel: number;
+  xpForNextLevel: number;
+  xpToNextLevel: number;
+  levelProgress: number;
+  categoryTotal: number;
+}
+
+export interface ConversationMessage {
   role: MessageRole;
   content: string;
   meta: string;
@@ -128,13 +124,17 @@ export interface Mission {
   cell_indices: number[];
   completion_hint: string;
   auto_completable: boolean;
-  criterion_id: string;
-  health_points: number;
 }
+
+export type ActivityKind = 'quiz' | 'predict' | 'teachback';
+export type ActivityResponse = 'choice' | 'open';
 
 export interface InjectionPoint {
   slotId: string;
-  kind: 'quiz';
+  kind: ActivityKind;
+  /** 'choice' (MCQ) or 'open' (free-text, LLM-graded). */
+  response: ActivityResponse;
+  kindLabel: string;
   region: string;
   topic: string;
   anchorCellId: string;
@@ -143,11 +143,32 @@ export interface InjectionPoint {
   kindIcon: string;
 }
 
+/** Multiple-choice content (quiz + predict activities). */
 export interface QuizContent {
   question: string;
   options: string[];
   correctIndex: number;
   explanation: string;
+  model?: string;
+  kind?: ActivityKind;
+  response?: ActivityResponse;
+}
+
+/** Open-ended content (teachback activity). */
+export interface OpenContent {
+  prompt: string;
+  rubric: string[];
+  hint: string;
+  model?: string;
+  kind?: ActivityKind;
+  response?: ActivityResponse;
+}
+
+/** LLM verdict returned when grading an open activity. */
+export interface OpenVerdict {
+  passed: boolean;
+  score: number;
+  feedback: string;
   model?: string;
 }
 
@@ -155,15 +176,39 @@ export interface QuizRecord {
   slotId: string;
   anchorCellId: string;
   region: string;
+  /** Which activity kind this slot rendered. Older records omit it (quiz). */
+  activityKind?: ActivityKind;
+  /** Choice activities store the generated MCQ here. */
   quiz: QuizContent;
+  /** Open activities store the generated prompt + rubric here. */
+  open?: OpenContent;
+  /** Open activities: the learner's free-text answer + grading verdict. */
+  openAnswer?: string;
+  openVerdict?: OpenVerdict | null;
   generatedAt: number;
   selectedIndex: number | null;
   answeredCorrectly: boolean;
   attempts: number;
   awardedXp: number;
-  /** When true, the user dismissed the quiz cell — render a small stub
+  /** When true, the user dismissed the activity cell — render a small stub
    * with a "show again" action instead of the full panel. */
   hidden?: boolean;
+}
+
+export interface ActivityGradeResponse {
+  verdict: OpenVerdict;
+  outcome: { granted: boolean; xpAwarded?: number; category?: MissionKind };
+  state: QuestState;
+}
+
+/** A spontaneous quiz Flowy fires about an arbitrary snippet (e.g. a paste). */
+export interface FlowyQuiz {
+  challengeId: string;
+  source: string;
+  quiz: QuizContent;
+  selectedIndex: number | null;
+  answeredCorrectly: boolean;
+  awardedXp: number;
 }
 
 export interface FlatIssue {
@@ -175,9 +220,6 @@ export interface FlatIssue {
 }
 
 export interface AnalysisResponse {
-  health: number;
-  healthLabel: string;
-  healthBreakdown: Record<IssueSeverity, number>;
   cells: CellAnalysis[];
   issues: FlatIssue[];
   regionCounts: Record<string, number>;
@@ -187,14 +229,13 @@ export interface AnalysisResponse {
   injectionPoints: InjectionPoint[];
   summary: Record<string, unknown>;
   questState: QuestState;
-  autoCompleted: Array<{ awardKey: string; criterion: string; points: number; label: string }>;
-  criteria?: Array<{ id: string; label: string; icon: string; weight: number; pointBudget: number }>;
+  autoCompleted: Array<{ awardKey: string; category: MissionKind; xp: number; label: string }>;
 }
 
 export interface ExplainResponse {
   explanation: string;
   model: string;
-  outcome?: { granted: boolean; pointsAwarded?: number };
+  outcome?: { granted: boolean; xpAwarded?: number };
   state?: QuestState;
 }
 
@@ -212,23 +253,10 @@ export interface ClaimResponse {
   state: QuestState;
   outcome: {
     granted: boolean;
-    pointsAwarded?: number;
+    xpAwarded?: number;
     reason?: string;
-    criterion?: string;
+    category?: MissionKind;
   };
-}
-
-export interface InitializeResponse {
-  state: QuestState;
-  baseline: {
-    baselineHealth: number;
-    breakdown: Record<string, number | null>;
-    notes: string;
-    model: string;
-    fallback?: boolean;
-    fallbackError?: string;
-  };
-  notebookPath: string;
 }
 
 export interface GlobalSettings {
@@ -242,5 +270,3 @@ export interface GlobalSettings {
   envFile: string | null;
   favoriteModels: string[];
 }
-
-export type DifficultyLevel = 'easy' | 'medium' | 'hard';
