@@ -21,6 +21,11 @@ import type { Cell } from '@jupyterlab/cells';
 import { apiRequest, clipText, escapeHtml, notebookAwardPrefix } from './api';
 import { renderMarkdown } from './markdown';
 import {
+  categoryIcon,
+  icon as renderUiIcon,
+  regionIcon as renderRegionIcon
+} from './icons';
+import {
   errorBlockHtml,
   inlineSpinnerHtml,
   thinkingHtml,
@@ -39,19 +44,6 @@ import type {
 const CHIP_CLASS = 'flowquest-chip';
 const PANEL_CLASS = 'flowquest-cellPanel';
 const ROOT_CLASS = 'flowquest-cellRoot';
-
-const SEVERITY_EMOJI: Record<string, string> = {
-  info: '💡',
-  warn: '⚠️',
-  error: '🔥'
-};
-
-const MISSION_KIND_ICON: Record<string, string> = {
-  exploration: '🧭',
-  understanding: '🧠',
-  stabilization: '🛠️',
-  reflection: '🪞'
-};
 
 export interface CellDecoratorCallbacks {
   applyState: (state: QuestState) => void;
@@ -214,7 +206,7 @@ export class CellDecorator {
   private renderChip(entry: CellEntry): void {
     const analysis = entry.analysis;
     const region = analysis?.region ?? 'other';
-    const icon = analysis?.regionIcon ?? '✨';
+    const regionGlyph = renderRegionIcon(region);
     const issues = analysis?.issues ?? [];
     const worstSeverity = issues.reduce<string>((acc, issue) => {
       if (issue.severity === 'error') {
@@ -232,7 +224,7 @@ export class CellDecorator {
     const healthClass = worstSeverity ? `is-${worstSeverity}` : 'is-ok';
 
     entry.chip.innerHTML = `
-      <span class="flowquest-chipIcon">${escapeHtml(icon)}</span>
+      <span class="flowquest-chipIcon">${regionGlyph}</span>
       <span class="flowquest-chipLabel">${escapeHtml(region)}</span>
       <span class="flowquest-chipDot ${healthClass}" title="${escapeHtml(
         worstSeverity ? `Has ${worstSeverity} issue(s)` : 'No issues detected'
@@ -241,10 +233,12 @@ export class CellDecorator {
         missionCount
           ? `<span class="flowquest-chipStar" title="${missionCount} mission${
               missionCount === 1 ? '' : 's'
-            } for this cell">★ ${missionCount}</span>`
+            } for this cell">${renderUiIcon('star')} ${missionCount}</span>`
           : ''
       }
-      <span class="flowquest-chipToggle">${entry.panelOpen ? '▾' : '▸'}</span>
+      <span class="flowquest-chipToggle">${
+        entry.panelOpen ? renderUiIcon('chevronDown') : renderUiIcon('chevronRight')
+      }</span>
     `;
     entry.chip.classList.toggle('is-open', entry.panelOpen);
     entry.chip.classList.toggle('has-issues', Boolean(worstSeverity));
@@ -261,7 +255,7 @@ export class CellDecorator {
     const loadingMission = (id: string) => entry.loading.has(`claim-${id}`);
 
     const region = analysis?.region ?? 'other';
-    const regionIcon = analysis?.regionIcon ?? '✨';
+    const regionGlyph = renderRegionIcon(region);
 
     // ---- Facts pills -----------------------------------------------------
     const facts: string[] = [];
@@ -306,8 +300,12 @@ export class CellDecorator {
       .map(
         issue => `
           <li class="flowquest-issue flowquest-issue-${escapeHtml(issue.severity)}">
-            <span class="flowquest-issueIcon">${escapeHtml(
-              SEVERITY_EMOJI[issue.severity] ?? '•'
+            <span class="flowquest-issueIcon">${renderUiIcon(
+              issue.severity === 'error'
+                ? 'error'
+                : issue.severity === 'warn'
+                  ? 'warn'
+                  : 'info'
             )}</span>
             <span class="flowquest-issueBody">
               <strong>${escapeHtml(issue.kind.replace(/_/g, ' '))}</strong>
@@ -333,7 +331,7 @@ export class CellDecorator {
       return `
         <section class="flowquest-cellSection">
           <header class="flowquest-cellSectionHead">
-            <span class="flowquest-cellSectionIcon">🔍</span>
+            <span class="flowquest-cellSectionIcon">${renderUiIcon('explain')}</span>
             <span class="flowquest-cellSectionTitle">Explain this cell</span>
             <span class="flowquest-cellSectionMeta">+3 XP (first time per cell)</span>
           </header>
@@ -348,8 +346,8 @@ export class CellDecorator {
               loadingExplain
                 ? renderInlineSpinner('Thinking…')
                 : entry.explanation
-                  ? '↻ Re-explain'
-                  : '🔍 Explain'
+                  ? `${renderUiIcon('refresh')} Re-explain`
+                  : `${renderUiIcon('explain')} Explain`
             }</button>
           </div>
         </section>
@@ -388,7 +386,7 @@ export class CellDecorator {
       return `
         <section class="flowquest-cellSection">
           <header class="flowquest-cellSectionHead">
-            <span class="flowquest-cellSectionIcon">🪞</span>
+            <span class="flowquest-cellSectionIcon">${renderUiIcon('reflect')}</span>
             <span class="flowquest-cellSectionTitle">Reflect</span>
             <span class="flowquest-cellSectionMeta">+6 XP on first reflection</span>
           </header>
@@ -397,7 +395,7 @@ export class CellDecorator {
             !loadingReflect && !entry.reflectQuestion && !entry.reflectError
               ? `
                 <div class="flowquest-actionsRow">
-                  <button type="button" class="flowquest-btn" data-action="reflect">🪞 Get a question</button>
+                  <button type="button" class="flowquest-btn" data-action="reflect">${renderUiIcon('reflect')} Get a question</button>
                 </div>
               `
               : ''
@@ -422,8 +420,8 @@ export class CellDecorator {
             completed ? 'is-complete' : ''
           }">
             <div class="flowquest-missionHead">
-              <span class="flowquest-missionKind">${escapeHtml(
-                MISSION_KIND_ICON[mission.kind] ?? '✨'
+              <span class="flowquest-missionKind">${categoryIcon(
+                mission.kind
               )} ${escapeHtml(mission.kind)}</span>
               <span class="flowquest-missionXp">+${points} XP</span>
             </div>
@@ -446,7 +444,7 @@ export class CellDecorator {
                 ${completed || loadingThis ? 'disabled' : ''}
               >${
                 completed
-                  ? '✓ Claimed'
+                  ? `${renderUiIcon('check')} Claimed`
                   : loadingThis
                     ? renderInlineSpinner('Claiming…')
                     : `Claim +${points}`
@@ -463,15 +461,15 @@ export class CellDecorator {
           <div class="flowquest-cellPanelHeadLeft">
             <span class="flowquest-cellPanelBadge">Cell ${entry.cellIndex + 1}</span>
             <span class="flowquest-cellPanelRegion">
-              <span class="flowquest-cellPanelRegionIcon">${escapeHtml(regionIcon)}</span>
+              <span class="flowquest-cellPanelRegionIcon">${regionGlyph}</span>
               <span class="flowquest-cellPanelRegionLabel">${escapeHtml(region)}</span>
             </span>
           </div>
           <div class="flowquest-cellPanelHeadRight">
             <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="openSidebar">
-              Open FlowQuest →
+              Open FlowQuest ${renderUiIcon('open')}
             </button>
-            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close" title="Close">✕</button>
+            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close" title="Close">${renderUiIcon('close')}</button>
           </div>
         </header>
 
@@ -486,7 +484,7 @@ export class CellDecorator {
             ? `
               <section class="flowquest-cellSection">
                 <header class="flowquest-cellSectionHead">
-                  <span class="flowquest-cellSectionIcon">🩺</span>
+                  <span class="flowquest-cellSectionIcon">${renderUiIcon('diagnostics')}</span>
                   <span class="flowquest-cellSectionTitle">Issues</span>
                   <span class="flowquest-cellSectionMeta">${issues.length}</span>
                 </header>
@@ -504,7 +502,7 @@ export class CellDecorator {
             ? `
               <section class="flowquest-cellSection">
                 <header class="flowquest-cellSectionHead">
-                  <span class="flowquest-cellSectionIcon">⭐</span>
+                  <span class="flowquest-cellSectionIcon">${renderUiIcon('missions')}</span>
                   <span class="flowquest-cellSectionTitle">Missions</span>
                   <span class="flowquest-cellSectionMeta">${missions.length}</span>
                 </header>

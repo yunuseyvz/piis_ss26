@@ -40,51 +40,51 @@ interface AvatarCallbacks {
 
 const MOOD_MESSAGES: Record<AvatarMood, string[]> = {
   idle: [
-    'Ready for adventure! 🗺️',
-    "Let's make this notebook shine ✨",
+    'Ready for adventure!',
+    "Let's make this notebook shine",
     "Hi, I'm Flowy!",
-    'Need a hint? Tap me! 💡'
+    'Need a hint? Tap me!'
   ],
   thinking: [
-    'Analyzing your notebook… 🔍',
-    'Crunching the numbers… 🧮',
-    'Let me think about this… 🤔',
-    'Scanning cells… 📡'
+    'Analyzing your notebook…',
+    'Crunching the numbers…',
+    'Let me think about this…',
+    'Scanning cells…'
   ],
   happy: [
-    'Great progress! 🎉',
-    'Your notebook is looking great! 💚',
-    'Keep up the good flow! 🌊',
-    "You're on a roll! 🎲"
+    'Great progress!',
+    'Your notebook is looking great!',
+    'Keep up the good flow!',
+    "You're on a roll!"
   ],
   celebrating: [
-    'You did it! 🏆',
-    'XP rising! 📈',
-    'Victory dance! 💃',
-    'Level up vibes! ⭐'
+    'You did it!',
+    'XP rising!',
+    'Victory dance!',
+    'Level up vibes!'
   ],
   concerned: [
-    'Something looks off here… 🧐',
-    'Maybe check that cell? 🔧',
-    'A little cleanup could help! 🧹',
-    "Don't give up! 💪"
+    'Something looks off here…',
+    'Maybe check that cell?',
+    'A little cleanup could help!',
+    "Don't give up!"
   ],
   angry: [
-    'Hey! Did you just paste that?! 😤',
-    'Pasting code without reading it? 🙄',
-    'I saw that paste. Do you understand it? 🤨',
-    'Whoa — big paste! Let me explain it first. 😠',
-    'Copy-paste detected! Tap me to get quizzed. 😼'
+    'Hey! Did you just paste that?!',
+    'Pasting code without reading it?',
+    'I saw that paste. Do you understand it?',
+    'Whoa — big paste! Let me explain it first.',
+    'Copy-paste detected! Tap me to get quizzed.'
   ],
   suspicious: [
-    'Hmm… that was a chunky paste. 👀',
-    'New code appeared out of nowhere… 🧐',
-    'Want me to quiz you on what you pasted? 🤔'
+    'Hmm… that was a chunky paste.',
+    'New code appeared out of nowhere…',
+    'Want me to quiz you on what you pasted?'
   ],
   sleepy: [
-    'Zzz… waiting for action 😴',
-    'Wake me when you code! ☕',
-    'Just resting my bits… 💤'
+    'Zzz… waiting for action',
+    'Wake me when you code!',
+    'Just resting my bits…'
   ]
 };
 
@@ -187,7 +187,7 @@ export class AvatarAssistant {
     // Sparkle burst.
     const sparkleLayer = document.createElement('div');
     sparkleLayer.className = 'flowquest-avatarSparkles';
-    const glyphs = ['✦', '✧', '⭐', '✨', '💫'];
+    const glyphs = ['✦', '✧', '✩', '✵'];
     const count = 6;
     for (let i = 0; i < count; i += 1) {
       const spark = document.createElement('span');
@@ -228,13 +228,13 @@ export class AvatarAssistant {
     const mood: AvatarMood = big ? 'angry' : 'suspicious';
     const message = big
       ? this.pick([
-          `That was ${lineCount} lines of pasted code! 😤 Tap me to get quizzed.`,
-          'Big paste detected! Do you actually understand it? 🤨 Tap me.',
-          'Pasting AI code again? 😠 Tap me and I will quiz you on it.'
+          `That was ${lineCount} lines of pasted code! Tap me to get quizzed.`,
+          'Big paste detected! Do you actually understand it? Tap me.',
+          'Pasting AI code again? Tap me and I will quiz you on it.'
         ])
       : this.pick([
-          'Hmm, a sneaky little paste. 👀 Tap me to get quizzed.',
-          'New code appeared… 🧐 tap me to test yourself.'
+          'Hmm, a sneaky little paste. Tap me to get quizzed.',
+          'New code appeared… tap me to test yourself.'
         ]);
     this.setTransientMood(mood, 8000);
     this.showBubble(message, 8000);
@@ -524,7 +524,7 @@ export class AvatarAssistant {
         const snippet = this.lastPaste;
         this.lastPaste = null;
         this.callbacks.startPasteQuiz(snippet);
-        this.showBubble("Let's see if you understand that paste! 🧠", 3200);
+        this.showBubble("Let's see if you understand that paste!", 3200);
         this.setTransientMood('thinking', 2000);
         return;
       }

@@ -11,6 +11,11 @@
  */
 
 import { escapeHtml } from '../api';
+import {
+  activityIcon,
+  icon as renderUiIcon,
+  regionIcon as renderRegionIcon
+} from '../icons';
 import type { ActivityKind, QuizRecord } from '../types';
 import type {
   CellModule,
@@ -27,14 +32,14 @@ const COPY: Record<
     introTitle: 'Test your understanding of this region',
     introBody: topic =>
       `One short multiple-choice question about <strong>${escapeHtml(topic)}</strong>. <strong>+5 XP</strong> if you get it right.`,
-    cta: '🎯 Start the quiz'
+    cta: 'Start the quiz'
   },
   predict: {
     eyebrow: 'FlowQuest · predict the result',
     introTitle: 'Predict what this cell produces',
     introBody: topic =>
       `Before you run it — what will happen? One multiple-choice prediction about <strong>${escapeHtml(topic)}</strong>. <strong>+5 XP</strong> if you call it right.`,
-    cta: '🔮 Make a prediction'
+    cta: 'Make a prediction'
   },
   // teachback is handled by the open module; present only for type completeness.
   teachback: {
@@ -53,7 +58,7 @@ export class ChoiceModule implements CellModule {
     const copy = COPY[this.kind] ?? COPY.quiz;
     const anchorCell = cells.find(c => c.cellId === slot.anchorCellId);
     const anchorLabel = anchorCell ? `Cell ${anchorCell.index + 1}` : 'anchor cell';
-    const regionIcon = anchorCell?.regionIcon ?? '✨';
+    const regionGlyph = renderRegionIcon(slot.region);
 
     const status = record
       ? record.answeredCorrectly
@@ -68,14 +73,14 @@ export class ChoiceModule implements CellModule {
         <div class="flowquest-questCellHeaderTop">
           <span class="flowquest-questCellEyebrow">${escapeHtml(copy.eyebrow)}</span>
           <span class="flowquest-questCellStatus flowquest-questCellStatus-${escapeHtml(status)}">
-            ${escapeHtml(renderStatusLabel(status, record))}
+            ${renderStatusLabel(status, record)}
           </span>
         </div>
         <div class="flowquest-questCellHeaderMain">
-          <span class="flowquest-questCellMark">${escapeHtml(slot.kindIcon || '🎯')}</span>
+          <span class="flowquest-questCellMark">${activityIcon(this.kind)}</span>
           <div class="flowquest-questCellHeaderTitle">
             <div class="flowquest-questCellRegion">
-              <span class="flowquest-questCellRegionIcon">${escapeHtml(regionIcon)}</span>
+              <span class="flowquest-questCellRegionIcon">${regionGlyph}</span>
               <span>${escapeHtml(slot.kindLabel || slot.region)}</span>
             </div>
             <div class="flowquest-questCellAnchor">on ${escapeHtml(anchorLabel)}</div>
@@ -98,15 +103,17 @@ export class ChoiceModule implements CellModule {
         </div>
       `;
     } else if (error) {
-      const icon = error.kind === 'timeout' ? '⏱️' : error.kind === 'auth' ? '🔐' : '⚠️';
+      const errGlyph = renderUiIcon(
+        error.kind === 'timeout' ? 'timeout' : error.kind === 'auth' ? 'auth' : 'warn'
+      );
       body = `
         <div class="flowquest-inlineError">
           <div class="flowquest-inlineErrorHead">
-            <span class="flowquest-inlineErrorIcon">${escapeHtml(icon)}</span>
+            <span class="flowquest-inlineErrorIcon">${errGlyph}</span>
             <span>${escapeHtml(error.message)}</span>
           </div>
           <div class="flowquest-actionsRow">
-            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate">↻ Retry</button>
+            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate">${renderUiIcon('refresh')} Retry</button>
             <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Dismiss</button>
           </div>
         </div>
@@ -114,7 +121,7 @@ export class ChoiceModule implements CellModule {
     } else if (!record) {
       body = `
         <div class="flowquest-questCellIntro">
-          <div class="flowquest-questCellIntroIcon">${escapeHtml(slot.kindIcon || '🎯')}</div>
+          <div class="flowquest-questCellIntroIcon">${activityIcon(this.kind)}</div>
           <div class="flowquest-questCellIntroBody">
             <div class="flowquest-questCellIntroTitle">${escapeHtml(copy.introTitle)}</div>
             <p>${copy.introBody(slot.topic)}</p>
@@ -126,7 +133,7 @@ export class ChoiceModule implements CellModule {
           }>${
             loading
               ? `<span class="flowquest-spinnerInline"><span class="flowquest-spinnerDot"></span><span class="flowquest-spinnerDot"></span><span class="flowquest-spinnerDot"></span><span>Generating…</span></span>`
-              : escapeHtml(copy.cta)
+              : `${activityIcon(this.kind)} ${escapeHtml(copy.cta)}`
           }</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Skip</button>
         </div>
@@ -159,10 +166,10 @@ export class ChoiceModule implements CellModule {
       const feedback =
         selected !== null
           ? record.answeredCorrectly
-            ? `<div class="flowquest-quizFeedback is-correct"><span class="flowquest-quizFeedbackIcon">✓</span><span><strong>Correct.</strong> ${escapeHtml(
+            ? `<div class="flowquest-quizFeedback is-correct"><span class="flowquest-quizFeedbackIcon">${renderUiIcon('check')}</span><span><strong>Correct.</strong> ${escapeHtml(
                 quiz.explanation
               )}</span></div>`
-            : `<div class="flowquest-quizFeedback is-wrong"><span class="flowquest-quizFeedbackIcon">✗</span><span><strong>Not quite.</strong> ${escapeHtml(
+            : `<div class="flowquest-quizFeedback is-wrong"><span class="flowquest-quizFeedbackIcon">${renderUiIcon('cross')}</span><span><strong>Not quite.</strong> ${escapeHtml(
                 quiz.options[quiz.correctIndex] ?? ''
               )} is the right answer. ${escapeHtml(quiz.explanation)}</span></div>`
           : '';
@@ -177,7 +184,7 @@ export class ChoiceModule implements CellModule {
         ${feedback}
         ${xpLine}
         <div class="flowquest-actionsRow flowquest-actionsRow-quiz">
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="regenerate">↻ New question</button>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="regenerate">${renderUiIcon('refresh')} New question</button>
           ${
             !locked
               ? '<button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Hide</button>'
@@ -225,13 +232,13 @@ function bindChoiceActions(
 
 function renderStatusLabel(status: string, record: QuizRecord | null): string {
   if (status === 'solved') {
-    return '✅ solved';
+    return `${renderUiIcon('success')} solved`;
   }
   if (status === 'in-progress' && record) {
     return `attempt ${record.attempts}`;
   }
   if (status === 'ready') {
-    return '🎯 ready';
+    return `${renderUiIcon('checkpoint')} ready`;
   }
-  return '🗺️ checkpoint';
+  return `${renderUiIcon('brand')} checkpoint`;
 }

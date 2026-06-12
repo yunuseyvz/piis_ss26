@@ -1,0 +1,931 @@
+/*
+ * In-notebook surfaces injected into JupyterLab's notebook DOM: the HUD banner,
+ * the per-cell chip + inline panel, the virtual "quest cells" with their
+ * between-cell activities (quiz/predict/teach-back), and the dismissed stub.
+ *
+ * All of these align to JupyterLab's prompt gutter via --fq-cell-indent and
+ * keep --fq-cell-gap vertical rhythm so they read as native cells.
+ */
+
+/* ====================================================================== */
+/* HUD banner                                                             */
+/* ====================================================================== */
+.flowquest-banner {
+  position: relative;
+  margin: 0 4px var(--fq-cell-gap) 4px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background:
+    radial-gradient(
+      120% 140% at 0% 0%,
+      color-mix(in srgb, var(--fq-accent) 8%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      120% 140% at 100% 0%,
+      color-mix(in srgb, var(--fq-accent-2) 8%, transparent),
+      transparent 55%
+    ),
+    var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  box-shadow: var(--fq-shadow-soft);
+  overflow: hidden;
+  z-index: 2;
+}
+
+.flowquest-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--fq-grad-brand);
+}
+
+.flowquest-bannerInner {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) auto auto;
+  gap: 18px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+@media (max-width: 820px) {
+  .flowquest-bannerInner {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+  }
+  .flowquest-bannerLevel {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+.flowquest-bannerBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.flowquest-bannerMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--fq-radius-sm);
+  font-size: 22px;
+  line-height: 1;
+  color: #fff;
+  background: var(--fq-grad-brand);
+  box-shadow: var(--fq-shadow-accent), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.flowquest-bannerBrandText {
+  display: grid;
+  gap: 1px;
+}
+
+.flowquest-bannerTitle {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--jp-ui-font-color0);
+  font-size: 14px;
+}
+
+.flowquest-bannerSub {
+  font-size: 10px;
+  color: var(--jp-ui-font-color2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.flowquest-bannerLevel {
+  display: grid;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  min-width: 0;
+}
+
+.flowquest-bannerLevelTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.flowquest-bannerLevelBadge {
+  font-size: 12px;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--fq-accent), var(--fq-accent-5));
+  border-radius: var(--fq-radius-pill);
+  padding: 1px 10px;
+  color: #fff;
+}
+
+.flowquest-bannerLevelXp {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-bannerLevelFoot {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jp-ui-font-color2);
+  font-weight: 700;
+}
+
+.flowquest-bannerMissions {
+  display: grid;
+  gap: 1px;
+  padding: 0 0 0 18px;
+  border: none;
+  border-left: var(--fq-border);
+  background: none;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  min-width: 0;
+}
+
+.flowquest-bannerMissionsLabel {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jp-ui-font-color2);
+  font-weight: 700;
+}
+
+.flowquest-bannerMissionsValue {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-bannerMissionsFoot {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.flowquest-bannerActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.flowquest-bannerIconBtn {
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  border: var(--fq-border);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color0);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--fq-radius-pill);
+  transition: background var(--fq-transition), border-color var(--fq-transition);
+}
+
+.flowquest-bannerIconBtn:hover:not(:disabled) {
+  background: var(--fq-accent-soft);
+  border-color: transparent;
+  color: var(--fq-accent);
+}
+
+.flowquest-bannerIconBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.flowquest-bannerDifficulty {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 14px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-surface-2);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--fq-transition);
+}
+
+.flowquest-bannerDifficulty:hover {
+  background: var(--fq-accent-soft);
+  border-color: color-mix(in srgb, var(--fq-accent) 45%, transparent);
+  color: var(--fq-accent);
+}
+
+/* ====================================================================== */
+/* Per-cell chip                                                          */
+/* ====================================================================== */
+.flowquest-cellRoot {
+  position: relative;
+}
+
+.flowquest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  margin: 4px 6px 2px var(--fq-cell-indent);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-surface-2);
+  font-size: 11px;
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  user-select: none;
+  width: fit-content;
+  font-family: var(--jp-ui-font-family);
+  outline: none;
+  transition: background var(--fq-transition), border-color var(--fq-transition),
+    box-shadow var(--fq-transition);
+}
+
+.flowquest-chip:hover {
+  background: var(--fq-accent-soft);
+  border-color: color-mix(in srgb, var(--fq-accent) 40%, transparent);
+  color: var(--fq-accent);
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-chip.is-open {
+  background: var(--fq-surface-3);
+  border-color: var(--fq-accent);
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-chip.has-issues {
+  border-color: var(--fq-warn);
+}
+
+.flowquest-chip.has-mission {
+  border-color: var(--fq-accent-3);
+}
+
+.flowquest-chipIcon {
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+}
+
+.flowquest-chipLabel {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.flowquest-chipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-success);
+}
+
+.flowquest-chipDot.is-info { background: var(--fq-info); }
+.flowquest-chipDot.is-warn { background: var(--fq-warn); }
+.flowquest-chipDot.is-error { background: var(--fq-danger); }
+.flowquest-chipDot.is-ok { background: var(--fq-success); }
+
+.flowquest-chipStar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 7px;
+  background: color-mix(in srgb, var(--fq-accent-3) 22%, transparent);
+  color: var(--fq-reflection);
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  border-radius: var(--fq-radius-pill);
+}
+
+.flowquest-chipToggle {
+  color: var(--jp-ui-font-color2);
+  font-size: 10px;
+  margin-left: 2px;
+  display: inline-flex;
+}
+
+/* ====================================================================== */
+/* Inline cell panel                                                      */
+/* ====================================================================== */
+.flowquest-cellPanel {
+  margin: var(--fq-cell-gap) 6px var(--fq-cell-gap) var(--fq-cell-indent);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--fq-surface);
+  box-shadow: var(--fq-shadow-soft);
+  overflow: hidden;
+}
+
+.flowquest-cellPanelInner {
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
+.flowquest-cellPanel-region-load     { box-shadow: inset 4px 0 0 var(--fq-region-load); }
+.flowquest-cellPanel-region-clean    { box-shadow: inset 4px 0 0 var(--fq-region-clean); }
+.flowquest-cellPanel-region-explore  { box-shadow: inset 4px 0 0 var(--fq-region-explore); }
+.flowquest-cellPanel-region-visualize{ box-shadow: inset 4px 0 0 var(--fq-region-visualize); }
+.flowquest-cellPanel-region-model    { box-shadow: inset 4px 0 0 var(--fq-region-model); }
+.flowquest-cellPanel-region-output   { box-shadow: inset 4px 0 0 var(--fq-region-output); }
+.flowquest-cellPanel-region-narrative{ box-shadow: inset 4px 0 0 var(--fq-region-narrative); }
+.flowquest-cellPanel-region-setup    { box-shadow: inset 4px 0 0 var(--fq-region-setup); }
+.flowquest-cellPanel-region-other    { box-shadow: inset 4px 0 0 var(--fq-region-other); }
+
+.flowquest-cellPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 8px 16px;
+  background: var(--fq-surface-2);
+  border-bottom: var(--fq-border);
+  gap: 10px;
+}
+
+.flowquest-cellPanelHeadLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flowquest-cellPanelHeadRight {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.flowquest-cellPanelBadge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-accent-soft);
+  color: var(--fq-accent);
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.flowquest-cellPanelRegion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-cellPanelRegionIcon {
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+}
+
+.flowquest-cellPanelRegionLabel {
+  text-transform: capitalize;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.flowquest-cellPanelInner > .flowquest-factRow {
+  padding: 8px 12px 4px 16px;
+  border-bottom: 1px dashed var(--fq-border-color);
+}
+
+.flowquest-factRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.flowquest-fact {
+  padding: 2px 8px;
+  background: var(--fq-surface-2);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+  font-size: 10px;
+  color: var(--jp-ui-font-color1);
+  font-family: var(--jp-code-font-family, monospace);
+}
+
+.flowquest-fact.is-warn {
+  border-color: transparent;
+  color: var(--fq-warn);
+  background: color-mix(in srgb, var(--fq-warn) 15%, transparent);
+}
+
+.flowquest-cellSection {
+  padding: 10px 12px 12px 16px;
+  border-top: 1px dashed var(--fq-border-color);
+  display: grid;
+  gap: 8px;
+}
+
+.flowquest-cellSection:first-of-type {
+  border-top: none;
+}
+
+.flowquest-cellSectionHead {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.flowquest-cellSectionIcon {
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  color: var(--fq-accent);
+}
+
+.flowquest-cellSectionTitle {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--jp-ui-font-color0);
+  letter-spacing: 0.02em;
+}
+
+.flowquest-cellSectionMeta {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jp-ui-font-color2);
+  font-weight: 700;
+}
+
+/* ---- Issues ----------------------------------------------------------- */
+.flowquest-issueList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.flowquest-issue {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 6px 8px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-issue-info { border-left: 3px solid var(--fq-info); }
+.flowquest-issue-warn {
+  border-left: 3px solid var(--fq-warn);
+  background: color-mix(in srgb, var(--fq-warn) 8%, transparent);
+}
+.flowquest-issue-error {
+  border-left: 3px solid var(--fq-danger);
+  background: color-mix(in srgb, var(--fq-danger) 8%, transparent);
+}
+
+.flowquest-issueIcon {
+  font-size: 14px;
+  display: inline-flex;
+}
+.flowquest-issue-info .flowquest-issueIcon { color: var(--fq-info); }
+.flowquest-issue-warn .flowquest-issueIcon { color: var(--fq-warn); }
+.flowquest-issue-error .flowquest-issueIcon { color: var(--fq-danger); }
+
+.flowquest-issueBody {
+  display: grid;
+  gap: 2px;
+}
+
+.flowquest-issueBody strong {
+  text-transform: capitalize;
+}
+
+/* ====================================================================== */
+/* Virtual quest cells                                                    */
+/* ====================================================================== */
+.flowquest-questCell {
+  margin: var(--fq-cell-gap) 6px var(--fq-cell-gap) var(--fq-cell-indent);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--fq-surface);
+  box-shadow: var(--fq-shadow-soft);
+  color: var(--jp-ui-font-color1);
+  position: relative;
+  overflow: hidden;
+}
+
+.flowquest-questCell::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--fq-accent), var(--fq-accent-5), var(--fq-accent-2));
+}
+
+.flowquest-questCellInner {
+  display: grid;
+  gap: 0;
+  padding: 0;
+}
+
+.flowquest-questCellInner-load     { box-shadow: inset 6px 0 0 var(--fq-region-load); }
+.flowquest-questCellInner-clean    { box-shadow: inset 6px 0 0 var(--fq-region-clean); }
+.flowquest-questCellInner-explore  { box-shadow: inset 6px 0 0 var(--fq-region-explore); }
+.flowquest-questCellInner-visualize{ box-shadow: inset 6px 0 0 var(--fq-region-visualize); }
+.flowquest-questCellInner-model    { box-shadow: inset 6px 0 0 var(--fq-region-model); }
+
+.flowquest-questCellHeader {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px 12px 18px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--fq-accent) 8%, transparent),
+    color-mix(in srgb, var(--fq-accent-2) 4%, transparent)
+  );
+  border-bottom: var(--fq-border);
+}
+
+.flowquest-questCellHeaderTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.flowquest-questCellEyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jp-ui-font-color2);
+  font-weight: 800;
+}
+
+.flowquest-questCellHeaderMain {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.flowquest-questCellMark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface);
+  color: var(--fq-accent);
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-questCellHeaderTitle {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.flowquest-questCellRegion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: capitalize;
+  color: var(--jp-ui-font-color0);
+  letter-spacing: 0.02em;
+}
+
+.flowquest-questCellRegionIcon {
+  font-size: 16px;
+  line-height: 1;
+  display: inline-flex;
+}
+
+.flowquest-questCellAnchor {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  font-family: var(--jp-code-font-family, monospace);
+}
+
+.flowquest-questCellStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-surface-2);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.flowquest-questCellStatus-solved {
+  background: color-mix(in srgb, var(--fq-success) 18%, transparent);
+  color: var(--fq-success);
+  border-color: transparent;
+}
+
+.flowquest-questCellStatus-in-progress {
+  background: color-mix(in srgb, var(--fq-warn) 18%, transparent);
+  color: var(--fq-warn);
+  border-color: transparent;
+}
+
+.flowquest-questCellStatus-ready {
+  background: color-mix(in srgb, var(--fq-accent-2) 18%, transparent);
+  color: var(--fq-accent-2);
+  border-color: transparent;
+}
+
+.flowquest-questCellStatus-empty {
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color2);
+}
+
+.flowquest-questCellBody {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px 16px 18px;
+}
+
+.flowquest-questCellIntro {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 12px;
+  border: 1px dashed var(--fq-border-color);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  align-items: start;
+}
+
+.flowquest-questCellIntroIcon {
+  font-size: 24px;
+  line-height: 1;
+  display: inline-flex;
+  color: var(--fq-accent);
+}
+
+.flowquest-questCellIntroBody {
+  display: grid;
+  gap: 4px;
+}
+
+.flowquest-questCellIntroTitle {
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-questCellIntroBody p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-questCellLoadingPanel {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  align-items: center;
+}
+
+.flowquest-questCellLoadingTitle {
+  font-weight: 700;
+  color: var(--jp-ui-font-color0);
+  font-size: 13px;
+}
+
+.flowquest-questCellLoadingHint {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+}
+
+.flowquest-questCellHint {
+  font-size: 12px;
+  color: var(--jp-ui-font-color2);
+  background: var(--fq-surface-2);
+  border-left: 3px solid var(--fq-accent-3);
+  border-radius: var(--fq-radius-sm);
+  padding: 6px 10px;
+  margin: 8px 0;
+}
+
+/* ---- Dismissed quest-cell stub --------------------------------------- */
+.flowquest-questCellStub {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-questCellStubIcon {
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  color: var(--fq-accent);
+}
+
+.flowquest-questCellStubTitle {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--jp-ui-font-color0);
+  letter-spacing: 0.04em;
+}
+
+.flowquest-questCellStubMeta {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  text-transform: capitalize;
+}
+
+/* ====================================================================== */
+/* Between-cell quiz / activity widgets                                   */
+/* ====================================================================== */
+.flowquest-quizQuestion {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--jp-ui-font-color0);
+  padding: 8px 0 4px;
+}
+
+.flowquest-quizOptions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.flowquest-quizOption {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color1);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  transition: transform 0.12s var(--fq-ease), box-shadow 0.12s var(--fq-ease),
+    background 0.12s var(--fq-ease), border-color 0.12s var(--fq-ease);
+}
+
+.flowquest-quizOption:hover:not(:disabled) {
+  background: var(--fq-accent-soft);
+  border-color: var(--fq-accent);
+  color: var(--jp-ui-font-color0);
+  box-shadow: var(--fq-shadow-soft);
+  transform: translateY(-1px);
+}
+
+.flowquest-quizOption:disabled {
+  cursor: not-allowed;
+}
+
+.flowquest-quizOption.is-correct {
+  border-color: var(--fq-success);
+  background: color-mix(in srgb, var(--fq-success) 18%, transparent);
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-quizOption.is-wrong {
+  border-color: var(--fq-danger);
+  background: color-mix(in srgb, var(--fq-danger) 14%, transparent);
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-quizOptionLetter {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 13px;
+  font-weight: 800;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-accent-soft);
+  color: var(--fq-accent);
+}
+
+.flowquest-quizOption.is-correct .flowquest-quizOptionLetter {
+  background: var(--fq-success);
+  color: #fff;
+}
+
+.flowquest-quizOption.is-wrong .flowquest-quizOptionLetter {
+  background: var(--fq-danger);
+  color: #fff;
+}
+
+.flowquest-quizOptionText {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.flowquest-quizFeedback {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: start;
+  font-size: 12px;
+  padding: 10px 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  line-height: 1.55;
+}
+
+.flowquest-quizFeedbackIcon {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.flowquest-quizFeedback.is-correct {
+  border-left: 4px solid var(--fq-success);
+  background: color-mix(in srgb, var(--fq-success) 12%, transparent);
+  color: var(--fq-success);
+}
+
+.flowquest-quizFeedback.is-wrong {
+  border-left: 4px solid var(--fq-danger);
+  background: color-mix(in srgb, var(--fq-danger) 12%, transparent);
+  color: var(--fq-danger);
+}
+
+.flowquest-quizXp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fq-success);
+  background: color-mix(in srgb, var(--fq-success) 16%, transparent);
+  padding: 4px 9px;
+  border-radius: var(--fq-radius-pill);
+  width: fit-content;
+}
+
+.flowquest-actionsRow-quiz {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--fq-border-color);
+}

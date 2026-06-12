@@ -11,4 +11,4 @@ jupyterlab_extensions/*/lib/
 jupyterlab_extensions/*/build/
 jupyterlab_extensions/*/jupyterlab_piis_assistant/labextension/
 jupyterlab_extensions/*/jupyterlab_piis_surfaces/labextension/
-jupyterlab_extensions/*/tsconfig.tsbuildinfo
+jupyterlab_extensions/*/tsconfig.tsbuildinfo.npmrc

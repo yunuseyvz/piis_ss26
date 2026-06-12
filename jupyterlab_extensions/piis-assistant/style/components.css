@@ -1,0 +1,654 @@
+/*
+ * Shared primitives — cards, buttons, pills, inputs, feedback, meters, and
+ * rendered markdown. These are used across every FlowQuest surface.
+ */
+
+/* ---- Cards ------------------------------------------------------------ */
+.flowquest-card {
+  position: relative;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--fq-panel);
+  padding: var(--fq-pad);
+  display: grid;
+  gap: var(--fq-gap);
+  box-shadow: var(--fq-shadow);
+}
+
+/* Hairline top highlight so panels read as gently lit from above. */
+.flowquest-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  border-radius: var(--fq-radius) var(--fq-radius) 0 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--fq-edge-highlight),
+    transparent
+  );
+  pointer-events: none;
+}
+
+.flowquest-cardHead {
+  display: flex;
+  gap: var(--fq-space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flowquest-cardTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-cardHint {
+  font-size: 12px;
+  color: var(--jp-ui-font-color2);
+  line-height: 1.5;
+}
+
+.flowquest-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jp-ui-font-color2);
+  font-weight: 700;
+}
+
+.flowquest-dim {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  line-height: 1.5;
+}
+
+/* ---- Pills / badges --------------------------------------------------- */
+.flowquest-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color1);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flowquest-pill.is-live {
+  border-color: transparent;
+  color: var(--fq-success);
+  background: color-mix(in srgb, var(--fq-success) 16%, transparent);
+}
+
+.flowquest-pill.is-live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fq-success);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--fq-success) 70%, transparent);
+  animation: flowquest-livedot 1.8s var(--fq-ease-out) infinite;
+}
+
+@keyframes flowquest-livedot {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fq-success) 65%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 6px transparent; }
+}
+
+.flowquest-pill.is-missing {
+  border-color: transparent;
+  color: var(--fq-danger);
+  background: color-mix(in srgb, var(--fq-danger) 16%, transparent);
+}
+
+.flowquest-pill.flowquest-pill-muted {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+/* ---- Buttons ---------------------------------------------------------- */
+.flowquest-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: var(--fq-border-strong);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color0);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 13px;
+  cursor: pointer;
+  border-radius: var(--fq-radius-sm);
+  transition: transform 0.08s var(--fq-ease), background var(--fq-transition),
+    box-shadow var(--fq-transition), border-color var(--fq-transition);
+}
+
+/* Colourful, readable hover. Always set background-color + color explicitly so
+ * JupyterLab's generic `button:hover { background-color: … }` (injected into the
+ * notebook DOM) can never repaint our buttons into an unreadable state. */
+.flowquest-btn:hover:not(:disabled) {
+  background: var(--fq-accent-soft);
+  border-color: color-mix(in srgb, var(--fq-accent) 45%, transparent);
+  color: var(--fq-accent);
+}
+
+.flowquest-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.flowquest-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--fq-accent-soft), 0 0 0 1px var(--fq-accent);
+}
+
+.flowquest-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.flowquest-btn-primary {
+  /* background-image carries the gradient; background-color is a solid fallback
+   * so a stray `background-color` override can't show through. */
+  background-color: var(--fq-accent);
+  background-image: var(--fq-grad-brand);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--fq-shadow-accent);
+}
+
+.flowquest-btn-primary:hover:not(:disabled) {
+  background-color: var(--fq-accent);
+  background-image: var(--fq-grad-brand);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: var(--fq-shadow-pop);
+  transform: translateY(-1px);
+}
+
+.flowquest-btn-ghost {
+  background: transparent;
+  border-color: var(--fq-border-color);
+  box-shadow: none;
+}
+
+.flowquest-btn-ghost:hover:not(:disabled) {
+  background: var(--fq-accent-soft);
+  border-color: color-mix(in srgb, var(--fq-accent) 45%, transparent);
+  color: var(--fq-accent);
+}
+
+.flowquest-btn-danger {
+  border: 1px solid transparent;
+  background-color: var(--fq-danger);
+  background-image: none;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-btn-danger:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--fq-danger) 86%, #000);
+  color: #fff;
+  box-shadow: var(--fq-shadow-pop);
+}
+
+.flowquest-linkBtn {
+  border: none;
+  background: none;
+  color: var(--fq-accent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.flowquest-linkBtn:hover {
+  color: var(--fq-accent-5);
+}
+
+/* ---- Small reusable bits --------------------------------------------- */
+.flowquest-chipMini {
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color1);
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-family: var(--jp-code-font-family, monospace);
+  transition: background var(--fq-transition), color var(--fq-transition);
+}
+
+.flowquest-chipMini:hover {
+  background: var(--fq-accent-soft);
+  color: var(--fq-accent);
+  border-color: transparent;
+}
+
+.flowquest-block {
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--jp-ui-font-color1);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.flowquest-block.flowquest-md {
+  white-space: normal;
+}
+
+.flowquest-textarea {
+  width: 100%;
+  min-height: 90px;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 10px;
+  border: var(--fq-border-strong);
+  background: var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: var(--fq-radius-sm);
+  transition: border-color var(--fq-transition), box-shadow var(--fq-transition);
+}
+
+.flowquest-textarea:focus {
+  outline: none;
+  border-color: var(--fq-accent);
+  box-shadow: 0 0 0 3px var(--fq-accent-soft);
+}
+
+.flowquest-actionsRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.flowquest-statRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flowquest-confirmRow {
+  display: flex;
+  gap: var(--fq-space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--fq-danger) 40%, transparent);
+  border-radius: var(--fq-radius-sm);
+  background: color-mix(in srgb, var(--fq-danger) 8%, transparent);
+  font-size: 12px;
+}
+
+/* ---- Toast + flash ---------------------------------------------------- */
+.flowquest-toast {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--jp-inverse-layout-color1, #111);
+  color: var(--jp-inverse-ui-font-color1, #fff);
+  padding: 8px 14px;
+  border-radius: var(--fq-radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: var(--fq-shadow-pop);
+  animation: flowquest-pop 0.2s var(--fq-ease);
+  z-index: 10;
+}
+
+@keyframes flowquest-pop {
+  0% {
+    transform: translate(-50%, 10px);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.flowquest-flash {
+  animation: flowquest-flash 1.2s var(--fq-ease);
+}
+
+@keyframes flowquest-flash {
+  0% {
+    box-shadow: 0 0 0 2px var(--fq-accent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* ---- Thinking / spinner / inline error -------------------------------- */
+.flowquest-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  font-size: 12px;
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-thinkingSpinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--fq-border-color);
+  border-top-color: var(--fq-accent);
+  border-radius: 50%;
+  animation: flowquest-spin 0.8s linear infinite;
+  flex: 0 0 auto;
+}
+
+@keyframes flowquest-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.flowquest-spinnerInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.flowquest-spinnerDot {
+  width: 5px;
+  height: 5px;
+  background: currentColor;
+  border-radius: 50%;
+  opacity: 0.45;
+  animation: flowquest-pulse 1.1s ease-in-out infinite;
+}
+
+.flowquest-spinnerDot:nth-child(1) { animation-delay: 0s; }
+.flowquest-spinnerDot:nth-child(2) { animation-delay: 0.18s; }
+.flowquest-spinnerDot:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes flowquest-pulse {
+  0%, 80%, 100% {
+    transform: scale(0.85);
+    opacity: 0.35;
+  }
+  40% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+.flowquest-inlineError {
+  display: grid;
+  gap: 8px;
+  padding: 9px 11px;
+  border: var(--fq-border);
+  border-left: 3px solid var(--fq-warn);
+  border-radius: var(--fq-radius-sm);
+  background: color-mix(in srgb, var(--fq-warn) 8%, transparent);
+  font-size: 12px;
+  color: var(--jp-ui-font-color1);
+  line-height: 1.5;
+}
+
+.flowquest-inlineErrorHead {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.flowquest-inlineErrorIcon {
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--fq-warn);
+}
+
+.flowquest-inlineError-compact {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+/* ---- Level meter (sidebar header + banner) — the hero element --------- */
+.flowquest-levelMeter {
+  position: relative;
+  height: 10px;
+  background: var(--fq-surface-3);
+  border-radius: var(--fq-radius-pill);
+  overflow: hidden;
+  box-shadow: inset 0 1px 2px rgba(20, 18, 40, 0.18);
+}
+
+.flowquest-levelMeterFill {
+  position: relative;
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: var(--fq-radius-pill);
+  background: var(--fq-grad-brand);
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px var(--fq-accent-glow);
+  transition: width var(--fq-slow);
+}
+
+/* A glint that sweeps across the fill once when XP is gained (triggered by the
+ * `is-charging` class added in anim.ts). Idle by default — no perpetual motion. */
+.flowquest-levelMeterFill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 80%
+  );
+  width: 38%;
+  transform: translateX(-120%);
+  opacity: 0;
+}
+
+.flowquest-levelMeterFill.is-charging::after {
+  animation: flowquest-sheen 0.9s var(--fq-ease-out) 1;
+}
+
+.flowquest-levelMeterLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--jp-ui-font-color2);
+  margin-top: 5px;
+}
+
+/* ---- XP-by-category donut chart --------------------------------------- */
+.flowquest-categoryChart {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: var(--fq-border);
+}
+
+.flowquest-donutWrap {
+  position: relative;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+}
+
+.flowquest-donut {
+  width: 64px;
+  height: 64px;
+  display: block;
+}
+
+.flowquest-donutTrack {
+  stroke: var(--fq-surface-3);
+}
+
+.flowquest-donutSeg {
+  transition: stroke-dasharray 0.4s var(--fq-ease), stroke-dashoffset 0.4s var(--fq-ease);
+}
+
+.flowquest-donutCenter {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--jp-ui-font-color2);
+}
+
+.flowquest-donutLegend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.flowquest-donutLegendItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.flowquest-donutSwatch {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--fq-radius-pill);
+}
+
+.flowquest-donutLegendPct {
+  font-weight: 800;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-donutLegendLabel {
+  color: var(--jp-ui-font-color2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Rendered markdown (chat replies, handbook) ----------------------- */
+.flowquest-md {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.flowquest-md > :first-child { margin-top: 0; }
+.flowquest-md > :last-child { margin-bottom: 0; }
+
+.flowquest-md p {
+  margin: 0 0 8px;
+}
+
+.flowquest-mdH {
+  margin: 12px 0 6px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--jp-ui-font-color0);
+}
+
+h1.flowquest-mdH { font-size: 15px; }
+h2.flowquest-mdH { font-size: 14px; }
+h3.flowquest-mdH { font-size: 13px; }
+h4.flowquest-mdH,
+h5.flowquest-mdH,
+h6.flowquest-mdH { font-size: 12px; }
+
+.flowquest-mdList {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.flowquest-mdList li {
+  margin: 2px 0;
+}
+
+.flowquest-md a {
+  color: var(--fq-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.flowquest-md a:hover {
+  color: var(--fq-accent-5);
+}
+
+.flowquest-mdInlineCode {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 11px;
+  padding: 1px 5px;
+  background: var(--fq-surface-2);
+  border: var(--fq-border);
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.flowquest-mdCode {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: var(--fq-surface-2);
+  border: var(--fq-border);
+  border-left: 3px solid var(--fq-accent);
+  overflow-x: auto;
+  border-radius: var(--fq-radius-sm);
+}
+
+.flowquest-mdCode code {
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-mdQuote {
+  margin: 8px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--fq-accent-3);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color2);
+  border-radius: var(--fq-radius-sm);
+}
+
+.flowquest-mdQuote p {
+  margin: 4px 0;
+}
+
+.flowquest-mdHr {
+  border: none;
+  border-top: var(--fq-border);
+  margin: 10px 0;
+}

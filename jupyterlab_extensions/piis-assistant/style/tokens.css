@@ -1,0 +1,202 @@
+/*
+ * FlowQuest design tokens + primitives.
+ *
+ * Design language: "Aurora HUD" — a modern, slightly futuristic game-dashboard
+ * feel. One bold signature gradient (violet → magenta → rose), tabular HUD
+ * numerals, layered panels with a hairline top highlight, and purposeful
+ * spring-eased motion.
+ *
+ * Tokens are declared on :root (not .flowquest) because several FlowQuest
+ * surfaces — the in-notebook banner, per-cell chips, virtual activity cells,
+ * the settings/handbook modals, and the floating avatar — are injected directly
+ * into JupyterLab's DOM and are NOT descendants of a .flowquest element. CSS
+ * custom properties only inherit to descendants, so :root makes every token
+ * available everywhere.
+ *
+ * Colours layer over JupyterLab's own theme variables so light/dark themes are
+ * followed automatically; the accent palette supplies the personality.
+ */
+:root {
+  /* ---- Spacing scale --------------------------------------------------- */
+  --fq-space-1: 4px;
+  --fq-space-2: 8px;
+  --fq-space-3: 12px;
+  --fq-space-4: 16px;
+  --fq-gap: 10px;
+  --fq-pad: 14px;
+
+  /* ---- Radii (rounded, soft) ------------------------------------------ */
+  --fq-radius-xs: 6px;
+  --fq-radius-sm: 10px;
+  --fq-radius: 14px;
+  --fq-radius-lg: 20px;
+  --fq-radius-pill: 999px;
+
+  /* ---- Signature palette ---------------------------------------------- */
+  --fq-accent: #7c5cff;        /* vivid violet — primary */
+  --fq-accent-2: #18cdd4;      /* teal */
+  --fq-accent-3: #ffb020;      /* amber */
+  --fq-accent-4: #2dd4a7;      /* emerald */
+  --fq-accent-5: #ff5d8f;      /* rose */
+  --fq-accent-soft: color-mix(in srgb, var(--fq-accent) 13%, transparent);
+  --fq-accent-softer: color-mix(in srgb, var(--fq-accent) 7%, transparent);
+  --fq-accent-line: color-mix(in srgb, var(--fq-accent) 42%, transparent);
+  --fq-accent-glow: color-mix(in srgb, var(--fq-accent) 36%, transparent);
+
+  /* The one signature gradient, reused for brand marks, fills, focus. */
+  --fq-grad-brand: linear-gradient(115deg, #7c5cff 0%, #b14dff 46%, #ff5d8f 100%);
+  --fq-grad-brand-soft: linear-gradient(
+    115deg,
+    color-mix(in srgb, #7c5cff 16%, transparent),
+    color-mix(in srgb, #ff5d8f 16%, transparent)
+  );
+
+  /* ---- XP categories --------------------------------------------------- */
+  --fq-exploration: #18cdd4;
+  --fq-understanding: #7c5cff;
+  --fq-stabilization: #2dd4a7;
+  --fq-reflection: #ffb020;
+
+  /* ---- Status ---------------------------------------------------------- */
+  --fq-danger: #ff4d6d;
+  --fq-warn: #ffb020;
+  --fq-info: #4aa8ff;
+  --fq-success: #2dd4a7;
+
+  /* ---- Cell regions ---------------------------------------------------- */
+  --fq-region-setup: #94a3b8;
+  --fq-region-load: #18cdd4;
+  --fq-region-clean: #2dd4a7;
+  --fq-region-explore: #ffb020;
+  --fq-region-visualize: #fb923c;
+  --fq-region-model: #7c5cff;
+  --fq-region-output: #ff5d8f;
+  --fq-region-narrative: #64748b;
+  --fq-region-other: #94a3b8;
+
+  /* ---- Borders (hairline) --------------------------------------------- */
+  --fq-border-color: color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 13%, transparent);
+  --fq-border-color-strong: color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 24%, transparent);
+  --fq-border: 1px solid var(--fq-border-color);
+  --fq-border-strong: 1px solid var(--fq-border-color-strong);
+  /* Hairline highlight applied to the top edge of panels for a "lit" look. */
+  --fq-edge-highlight: color-mix(in srgb, #fff 50%, transparent);
+
+  /* ---- Surfaces -------------------------------------------------------- */
+  --fq-surface: var(--jp-layout-color0, #fff);
+  --fq-surface-2: var(--jp-layout-color1, #f7f8fa);
+  --fq-surface-3: color-mix(in srgb, var(--jp-layout-color2, #eef0f3) 72%, transparent);
+  /* Panel fill: a barely-there vertical sheen over the base surface. */
+  --fq-panel: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 2%, transparent),
+      transparent 42%
+    ),
+    var(--fq-surface);
+
+  /* ---- Elevation (soft, diffuse, lightly tinted) ---------------------- */
+  --fq-shadow: 0 1px 2px rgba(20, 18, 40, 0.07);
+  --fq-shadow-soft: 0 6px 18px rgba(20, 18, 40, 0.1);
+  --fq-shadow-pop: 0 16px 40px rgba(20, 18, 40, 0.2);
+  --fq-shadow-accent: 0 8px 22px var(--fq-accent-glow);
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --fq-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fq-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --fq-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fq-fast: 0.14s var(--fq-ease);
+  --fq-transition: 0.22s var(--fq-ease);
+  --fq-slow: 0.42s var(--fq-ease-out);
+
+  /* Alignment helpers for blocks injected into JupyterLab's notebook DOM. */
+  --fq-cell-gap: 12px;
+  --fq-cell-indent: 48px;
+}
+
+/* Dark theme: stronger edges, deeper shadows, brighter accent glow. */
+body[data-jp-theme-light='false'] {
+  --fq-border-color: color-mix(in srgb, #fff 14%, transparent);
+  --fq-border-color-strong: color-mix(in srgb, #fff 26%, transparent);
+  --fq-edge-highlight: color-mix(in srgb, #fff 14%, transparent);
+  --fq-panel: linear-gradient(
+      180deg,
+      color-mix(in srgb, #fff 4%, transparent),
+      transparent 42%
+    ),
+    var(--fq-surface);
+  --fq-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --fq-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --fq-shadow-pop: 0 18px 44px rgba(0, 0, 0, 0.62);
+  --fq-shadow-accent: 0 10px 26px var(--fq-accent-glow);
+}
+
+.flowquest {
+  color: var(--jp-ui-font-color1, #1f2933);
+  background: var(--jp-layout-color1, #fff);
+  font-family: var(--jp-ui-font-family, system-ui, sans-serif);
+  font-size: var(--jp-ui-font-size1, 13px);
+}
+
+/* Tabular HUD numerals — used for XP, levels, counts. */
+.flowquest-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
+}
+
+/* ---- Inline icon primitive ------------------------------------------- */
+.flowquest-icon {
+  display: inline-block;
+  vertical-align: -0.15em;
+  flex: 0 0 auto;
+  color: inherit;
+}
+
+/* Left-rail sidebar tab icon — a themed compass mask (no emoji). */
+.flowquest-sidebarIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flowquest-sidebarIcon::before {
+  content: '';
+  display: block;
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+  -webkit-mask: var(--fq-sidebar-mask) center / contain no-repeat;
+  mask: var(--fq-sidebar-mask) center / contain no-repeat;
+}
+
+:root {
+  --fq-sidebar-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z'/%3E%3C/svg%3E");
+}
+
+/* ---- Shared keyframes ------------------------------------------------- */
+@keyframes flowquest-sheen {
+  0% { transform: translateX(-120%); opacity: 1; }
+  60% { transform: translateX(320%); opacity: 1; }
+  100% { transform: translateX(320%); opacity: 0; }
+}
+
+@keyframes flowquest-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flowquest-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowquest *,
+  .flowquest-banner *,
+  .flowquest-questCell *,
+  .flowquest-settingsModal *,
+  .flowquest-handbookModal * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

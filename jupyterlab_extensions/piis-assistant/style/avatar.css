@@ -1,0 +1,544 @@
+/*
+ * Flowy — the floating avatar companion (bottom-right of each notebook) plus
+ * its speech-bubble stack, XP-gain celebration, and sparkle burst. The mascot
+ * sprite itself is hand-drawn SVG (flowySprite.ts); this file owns its motion.
+ */
+
+.flowquest-avatarHost {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.flowquest-avatar {
+  position: relative;
+  width: 64px;
+  height: 72px;
+  pointer-events: auto;
+  cursor: pointer;
+  filter: drop-shadow(0 6px 7px rgba(16, 36, 58, 0.22));
+  animation: flowquest-avatarFloat 3.4s ease-in-out infinite;
+  transition: filter 0.35s ease;
+}
+
+@keyframes flowquest-avatarFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+
+.flowquest-avatarBody {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  perspective: 340px;
+  transform-style: preserve-3d;
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.flowquest-avatar:hover .flowquest-avatarBody {
+  transform: translateY(-4px) scale(1.08);
+}
+
+.flowquest-avatar:active .flowquest-avatarBody {
+  transform: scale(0.94);
+}
+
+.flowquest-avatar:hover {
+  filter: drop-shadow(0 14px 18px rgba(16, 36, 58, 0.34));
+}
+
+/* Soft radial glow halo behind the sprite. */
+.flowquest-avatar::before {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--fq-accent-2) 50%, transparent),
+    color-mix(in srgb, var(--fq-accent-5) 28%, transparent) 45%,
+    transparent 70%
+  );
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.flowquest-avatar:hover::before {
+  opacity: 1;
+  transform: scale(1);
+  animation: flowquest-avatarGlowPulse 2.6s ease-in-out 0.35s infinite;
+}
+
+@keyframes flowquest-avatarGlowPulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.12); opacity: 1; }
+}
+
+/* A single sparkle that orbits the mascot on hover. */
+.flowquest-avatar::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 50%;
+  background: var(--fq-accent-3);
+  box-shadow: 0 0 6px var(--fq-accent-3), 0 0 12px var(--fq-accent-3);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+.flowquest-avatar:hover::after {
+  opacity: 1;
+  animation: flowquest-avatarOrbit 2.6s linear infinite;
+}
+
+@keyframes flowquest-avatarOrbit {
+  from { transform: rotate(0deg) translateX(40px); }
+  to { transform: rotate(360deg) translateX(40px); }
+}
+
+.flowquest-avatarVisual {
+  position: relative;
+  width: 58px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+  transition: transform 0.16s ease-out;
+}
+
+.flowquest-avatar.is-tilting .flowquest-avatarVisual {
+  transition: transform 0.08s linear;
+}
+
+.flowquest-avatarSprite {
+  grid-area: 1 / 1;
+  width: 58px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+}
+
+.flowquest-avatarSprite.is-entering { opacity: 0; }
+.flowquest-avatarSprite.is-leaving { opacity: 0; }
+
+.flowquest-avatarSvg {
+  display: block;
+  overflow: visible;
+}
+
+.flowquest-avatarHost .flowquest-avatarSvg {
+  width: 58px;
+  height: 64px;
+}
+
+.flowquest-flowyMark .flowquest-avatarSvg,
+.flowquest-msgAvatar .flowquest-avatarSvg,
+.flowquest-flowyAvatar .flowquest-avatarSvg {
+  overflow: hidden;
+}
+
+.flowquest-avatarCreature {
+  transform-box: fill-box;
+  transform-origin: 50% 80%;
+  animation: flowquest-avatarBob 3.4s ease-in-out infinite,
+             flowquest-avatarTilt 6.5s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarBob {
+  0%, 100% { transform: scale(1, 1); }
+  50% { transform: scale(1.03, 0.97); }
+}
+
+@keyframes flowquest-avatarTilt {
+  0%, 100% { transform: rotate(-2.5deg); }
+  50% { transform: rotate(2.5deg); }
+}
+
+.flowquest-avatar:hover .flowquest-avatarCreature {
+  animation: flowquest-avatarBob 1.6s ease-in-out infinite;
+}
+
+.flowquest-avatarEyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flowquest-avatarBlink 5.2s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.12); }
+}
+
+.flowquest-avatarFin {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+}
+.flowquest-avatarFin-l { animation: flowquest-avatarFlapL 1.8s ease-in-out infinite; }
+.flowquest-avatarFin-r { animation: flowquest-avatarFlapR 1.8s ease-in-out infinite; }
+
+@keyframes flowquest-avatarFlapL {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-12deg); }
+}
+@keyframes flowquest-avatarFlapR {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(12deg); }
+}
+
+.flowquest-avatarShadow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flowquest-avatarShadow 3.4s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarShadow {
+  0%, 100% { transform: scale(1); opacity: 0.2; }
+  50% { transform: scale(0.78); opacity: 0.1; }
+}
+
+.flowquest-avatarAntenna {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flowquest-avatarAntennaSpin 6s linear infinite;
+}
+
+@keyframes flowquest-avatarAntennaSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ---- mood overrides --------------------------------------------------- */
+.flowquest-avatar[data-mood="celebrating"] {
+  animation: flowquest-avatarFloat 0.85s ease-in-out infinite;
+}
+.flowquest-avatar[data-mood="celebrating"] .flowquest-avatarCreature {
+  animation: flowquest-avatarBob 0.6s ease-in-out infinite,
+             flowquest-avatarWiggle 0.6s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="thinking"] .flowquest-avatarCreature {
+  animation: flowquest-avatarBob 2.2s ease-in-out infinite,
+             flowquest-avatarTilt 4s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="concerned"] .flowquest-avatarCreature {
+  animation: flowquest-avatarShake 0.5s ease-in-out 3, flowquest-avatarTilt 5s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="happy"] .flowquest-avatarCreature {
+  animation: flowquest-avatarBounce 1.2s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="angry"] {
+  animation: flowquest-avatarFloat 3.4s ease-in-out infinite;
+}
+.flowquest-avatar[data-mood="angry"] .flowquest-avatarCreature {
+  animation: flowquest-avatarAngry 0.32s ease-in-out infinite;
+}
+
+.flowquest-avatar[data-mood="suspicious"] .flowquest-avatarCreature {
+  animation: flowquest-avatarBob 3s ease-in-out infinite,
+             flowquest-avatarLean 2.4s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarAngry {
+  0%, 100% { transform: translate(0, 0) rotate(-2deg); }
+  25% { transform: translate(-1.5px, -1px) rotate(2deg); }
+  50% { transform: translate(1.5px, 1px) rotate(-2deg); }
+  75% { transform: translate(-1px, 1px) rotate(1deg); }
+}
+
+@keyframes flowquest-avatarLean {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-7deg); }
+}
+
+.flowquest-avatarSteam {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flowquest-avatarSteamPuff 0.9s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarSteamPuff {
+  0%, 100% { opacity: 0.4; transform: translateY(0) scale(0.9); }
+  50% { opacity: 1; transform: translateY(-2px) scale(1.12); }
+}
+
+.flowquest-avatarThink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flowquest-avatarThinkPuff 1.6s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarThinkPuff {
+  0%, 100% { opacity: 0.5; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-2px); }
+}
+
+.flowquest-avatarStars {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: flowquest-avatarStarsTwinkle 1.1s ease-in-out infinite;
+}
+
+@keyframes flowquest-avatarStarsTwinkle {
+  0%, 100% { opacity: 0.7; transform: scale(0.92) rotate(-4deg); }
+  50% { opacity: 1; transform: scale(1.08) rotate(4deg); }
+}
+
+@keyframes flowquest-avatarWiggle {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+
+@keyframes flowquest-avatarNod {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+
+@keyframes flowquest-avatarShake {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  25% { transform: translateX(-1.5px) rotate(-2deg); }
+  75% { transform: translateX(1.5px) rotate(2deg); }
+}
+
+@keyframes flowquest-avatarBounce {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  40% { transform: translateY(-4px) scale(1.03, 0.97); }
+  60% { transform: translateY(-2px) scale(1.01, 0.99); }
+}
+
+/* ---- Ring pulse on hover --------------------------------------------- */
+.flowquest-avatarRing {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 2px solid var(--fq-accent-2);
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.flowquest-avatar:hover .flowquest-avatarRing {
+  opacity: 0.6;
+  transform: scale(1);
+  border-color: var(--fq-accent);
+  animation: flowquest-ringPulse 1.5s ease-out infinite;
+}
+
+.flowquest-avatar:hover .flowquest-avatarRing::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--fq-accent-3);
+  opacity: 0;
+  animation: flowquest-ringPulse 1.5s ease-out 0.75s infinite;
+}
+
+@keyframes flowquest-ringPulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flowquest-avatar,
+  .flowquest-avatar:hover,
+  .flowquest-avatar:hover .flowquest-avatarCreature,
+  .flowquest-avatar:hover::before,
+  .flowquest-avatar:hover::after,
+  .flowquest-avatar:hover .flowquest-avatarRing,
+  .flowquest-avatar:hover .flowquest-avatarRing::after {
+    animation: none;
+  }
+  .flowquest-avatarVisual,
+  .flowquest-avatar.is-tilting .flowquest-avatarVisual {
+    transform: none !important;
+    transition: none;
+  }
+}
+
+/* ---- Speech bubble stack --------------------------------------------- */
+.flowquest-avatarBubbleStack {
+  position: absolute;
+  bottom: 72px;
+  right: 0;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.flowquest-avatarBubble {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--jp-layout-color0, #fff);
+  color: var(--jp-ui-font-color1);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--fq-shadow-pop);
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: auto;
+}
+
+.flowquest-avatarBubble.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.flowquest-avatarBubble:last-child::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  right: 22px;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--fq-border-color);
+}
+
+.flowquest-avatarBubble:last-child::before {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  right: 24px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--jp-layout-color0, #fff);
+  z-index: 1;
+}
+
+.flowquest-avatarBubble.is-visible:not(:last-child) {
+  opacity: 0.72;
+}
+
+.flowquest-avatarBubbleText {
+  display: block;
+  padding-right: 18px;
+}
+
+.flowquest-avatarBubbleClose {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--jp-ui-font-color2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.flowquest-avatarBubbleClose:hover {
+  color: var(--jp-ui-font-color0);
+}
+
+body[data-jp-theme-light='false'] .flowquest-avatarBubble {
+  background: var(--jp-layout-color1, #1e1e1e);
+}
+
+body[data-jp-theme-light='false'] .flowquest-avatarBubble:last-child::before {
+  border-top-color: var(--jp-layout-color1, #1e1e1e);
+}
+
+/* ---- XP-gain celebration --------------------------------------------- */
+.flowquest-avatarXpPop {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translate(-50%, 0);
+  pointer-events: none;
+  z-index: 30;
+  font-weight: 800;
+  font-size: 15px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--fq-accent), var(--fq-accent-4));
+  border-radius: var(--fq-radius-pill);
+  padding: 2px 10px;
+  white-space: nowrap;
+  box-shadow: var(--fq-shadow-soft);
+  opacity: 0;
+}
+
+.flowquest-avatarXpPop.is-animating {
+  animation: flowquest-xpPop 1500ms cubic-bezier(0.18, 0.9, 0.32, 1.2) forwards;
+}
+
+@keyframes flowquest-xpPop {
+  0% { opacity: 0; transform: translate(-50%, 6px) scale(0.6); }
+  18% { opacity: 1; transform: translate(-50%, -6px) scale(1.12); }
+  35% { transform: translate(-50%, -14px) scale(1); }
+  75% { opacity: 1; transform: translate(-50%, -30px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -48px) scale(0.95); }
+}
+
+.flowquest-avatar.is-xpGain {
+  animation: flowquest-avatarPop 700ms cubic-bezier(0.2, 1.4, 0.4, 1) 1;
+}
+
+@keyframes flowquest-avatarPop {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.18) rotate(-4deg); }
+  55% { transform: scale(0.94) rotate(3deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.flowquest-avatarSparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.flowquest-avatarSparkle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  font-size: 14px;
+  color: var(--fq-accent-3);
+  opacity: 0;
+  animation: flowquest-sparkle 900ms ease-out forwards;
+}
+
+@keyframes flowquest-sparkle {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2); }
+  25% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform:
+      translate(
+        calc(-50% + var(--fq-spark-dx, 0px)),
+        calc(-50% + var(--fq-spark-dy, -30px))
+      )
+      scale(1);
+  }
+}

@@ -7,6 +7,11 @@
  */
 
 import { escapeHtml } from '../api';
+import {
+  activityIcon,
+  icon as renderUiIcon,
+  regionIcon as renderRegionIcon
+} from '../icons';
 import type { ActivityKind, QuizRecord } from '../types';
 import type {
   CellModule,
@@ -21,7 +26,7 @@ export class OpenModule implements CellModule {
     const { host, slot, record, cells, loading, error } = args;
     const anchorCell = cells.find(c => c.cellId === slot.anchorCellId);
     const anchorLabel = anchorCell ? `Cell ${anchorCell.index + 1}` : 'anchor cell';
-    const regionIcon = anchorCell?.regionIcon ?? '✨';
+    const regionGlyph = renderRegionIcon(slot.region);
 
     const verdict = record?.openVerdict ?? null;
     const passed = Boolean(verdict?.passed);
@@ -32,14 +37,14 @@ export class OpenModule implements CellModule {
         <div class="flowquest-questCellHeaderTop">
           <span class="flowquest-questCellEyebrow">FlowQuest · teach it back</span>
           <span class="flowquest-questCellStatus flowquest-questCellStatus-${escapeHtml(status)}">
-            ${escapeHtml(statusLabel(status, record))}
+            ${statusLabel(status, record)}
           </span>
         </div>
         <div class="flowquest-questCellHeaderMain">
-          <span class="flowquest-questCellMark">${escapeHtml(slot.kindIcon || '🗣️')}</span>
+          <span class="flowquest-questCellMark">${activityIcon('teachback')}</span>
           <div class="flowquest-questCellHeaderTitle">
             <div class="flowquest-questCellRegion">
-              <span class="flowquest-questCellRegionIcon">${escapeHtml(regionIcon)}</span>
+              <span class="flowquest-questCellRegionIcon">${regionGlyph}</span>
               <span>${escapeHtml(slot.kindLabel || 'Teach it back')}</span>
             </div>
             <div class="flowquest-questCellAnchor">on ${escapeHtml(anchorLabel)}</div>
@@ -60,15 +65,17 @@ export class OpenModule implements CellModule {
         </div>
       `;
     } else if (error) {
-      const icon = error.kind === 'timeout' ? '⏱️' : error.kind === 'auth' ? '🔐' : '⚠️';
+      const errGlyph = renderUiIcon(
+        error.kind === 'timeout' ? 'timeout' : error.kind === 'auth' ? 'auth' : 'warn'
+      );
       body = `
         <div class="flowquest-inlineError">
           <div class="flowquest-inlineErrorHead">
-            <span class="flowquest-inlineErrorIcon">${escapeHtml(icon)}</span>
+            <span class="flowquest-inlineErrorIcon">${errGlyph}</span>
             <span>${escapeHtml(error.message)}</span>
           </div>
           <div class="flowquest-actionsRow">
-            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate">↻ Retry</button>
+            <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate">${renderUiIcon('refresh')} Retry</button>
             <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Dismiss</button>
           </div>
         </div>
@@ -76,7 +83,7 @@ export class OpenModule implements CellModule {
     } else if (!record || !record.open) {
       body = `
         <div class="flowquest-questCellIntro">
-          <div class="flowquest-questCellIntroIcon">🗣️</div>
+          <div class="flowquest-questCellIntroIcon">${activityIcon('teachback')}</div>
           <div class="flowquest-questCellIntroBody">
             <div class="flowquest-questCellIntroTitle">Explain it in your own words</div>
             <p>FlowQuest will ask you to teach back <strong>${escapeHtml(
@@ -87,7 +94,7 @@ export class OpenModule implements CellModule {
         <div class="flowquest-actionsRow">
           <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="generate" ${
             loading ? 'disabled' : ''
-          }>${loading ? 'Preparing…' : '🗣️ Get my prompt'}</button>
+          }>${loading ? 'Preparing…' : `${activityIcon('teachback')} Get my prompt`}</button>
           <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="dismiss">Skip</button>
         </div>
       `;
@@ -97,7 +104,7 @@ export class OpenModule implements CellModule {
       const grading = args.loading && Boolean(record.open);
       const feedback = verdict
         ? `<div class="flowquest-quizFeedback ${passed ? 'is-correct' : 'is-wrong'}">
-             <span class="flowquest-quizFeedbackIcon">${passed ? '✓' : '✗'}</span>
+             <span class="flowquest-quizFeedbackIcon">${passed ? renderUiIcon('check') : renderUiIcon('cross')}</span>
              <span><strong>${passed ? `Passed · ${verdict.score}/100.` : 'Not yet.'}</strong> ${escapeHtml(
                verdict.feedback
              )}</span>
@@ -108,7 +115,7 @@ export class OpenModule implements CellModule {
         : '';
       const hintLine =
         open.hint && !passed
-          ? `<div class="flowquest-questCellHint">💡 ${escapeHtml(open.hint)}</div>`
+          ? `<div class="flowquest-questCellHint">${renderUiIcon('hint')} ${escapeHtml(open.hint)}</div>`
           : '';
 
       body = `
@@ -122,7 +129,7 @@ export class OpenModule implements CellModule {
         <div class="flowquest-actionsRow">
           ${
             passed
-              ? '<button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="regenerate">↻ New prompt</button>'
+              ? `<button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="regenerate">${renderUiIcon('refresh')} New prompt</button>`
               : `<button type="button" class="flowquest-btn flowquest-btn-primary" data-action="submit" ${
                   grading ? 'disabled' : ''
                 }>${grading ? 'Grading…' : 'Submit answer'}</button>
@@ -186,13 +193,13 @@ export class OpenModule implements CellModule {
 
 function statusLabel(status: string, record: QuizRecord | null): string {
   if (status === 'solved') {
-    return '✅ passed';
+    return `${renderUiIcon('success')} passed`;
   }
   if (status === 'in-progress' && record) {
     return `attempt ${record.attempts}`;
   }
   if (status === 'ready') {
-    return '🗣️ ready';
+    return `${activityIcon('teachback')} ready`;
   }
-  return '🗺️ checkpoint';
+  return `${renderUiIcon('brand')} checkpoint`;
 }

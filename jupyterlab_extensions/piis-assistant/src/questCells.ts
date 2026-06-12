@@ -20,6 +20,7 @@ import type { NotebookPanel } from '@jupyterlab/notebook';
 import { apiRequest } from './api';
 import { moduleFor } from './cellModules';
 import type { CellModuleActions } from './cellModules';
+import { activityIcon, icon as renderUiIcon } from './icons';
 import { QuestMetadataStore } from './questStore';
 import { toFriendlyError } from './uiFeedback';
 import type {
@@ -415,20 +416,20 @@ export class QuestCellRenderer {
     const anchorCell = cells.find(c => c.cellId === slot.anchorCellId);
     const anchorLabel = anchorCell ? `Cell ${anchorCell.index + 1}` : 'anchor cell';
     const solved = Boolean(record?.answeredCorrectly || record?.openVerdict?.passed);
-    const labelEmoji = solved ? '✅' : slot.kindIcon || '🎯';
+    const labelGlyph = solved ? renderUiIcon('success') : activityIcon(slot.kind);
     const labelText = solved
       ? `${slot.kindLabel || 'Activity'} solved · hidden`
       : `${slot.kindLabel || 'Activity'} hidden`;
     entry.host.innerHTML = `
       <div class="flowquest-questCellStub">
-        <span class="flowquest-questCellStubIcon">${labelEmoji}</span>
+        <span class="flowquest-questCellStubIcon">${labelGlyph}</span>
         <div class="flowquest-questCellStubBody">
           <div class="flowquest-questCellStubTitle">${escapeStub(labelText)}</div>
           <div class="flowquest-questCellStubMeta">${escapeStub(
             `${slot.region} checkpoint on ${anchorLabel}`
           )}</div>
         </div>
-        <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="reveal">↩️ Show</button>
+        <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="reveal">${renderUiIcon('reveal')} Show</button>
       </div>
     `;
     const reveal = entry.host.querySelector<HTMLButtonElement>('[data-action="reveal"]');

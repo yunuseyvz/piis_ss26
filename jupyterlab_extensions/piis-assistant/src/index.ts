@@ -13,6 +13,7 @@ import { QuestMetadataStore } from './questStore';
 import { EMPTY_QUEST_STATE } from './questState';
 import { SettingsPanel } from './settingsPanel';
 import { AssistantSidebar } from './sidebar';
+import { TutorialController } from './tutorial';
 import type { AnalysisResponse, QuestState } from './types';
 
 const PLUGIN_ID = 'jupyterlab-piis-assistant:plugin';
@@ -88,7 +89,16 @@ function activate(
     propagateGlobalState();
   };
 
-  const handbookPanel = new HandbookPanel();
+  // Guided first-run tour, narrated by Flowy. Replayable from the handbook.
+  const tutorial = new TutorialController({
+    activateSidebar: () => app.shell.activateById(AssistantSidebar.ID),
+    showTab: tab => sidebar.showTab(tab),
+    openSettings: () => settingsPanel.open('global')
+  });
+
+  const handbookPanel = new HandbookPanel({
+    onReplayTour: () => tutorial.start()
+  });
 
   const sidebar = new AssistantSidebar({
     refreshAnalysis: async () => {
@@ -367,6 +377,12 @@ function activate(
     .catch(() => {
       /* offline / not configured — keep the empty state */
     });
+
+  // First-run guided tour. Wait for the shell to settle so the spotlight
+  // targets (banner, cell chip, sidebar) are mounted before we point at them.
+  void app.restored.then(() => {
+    window.setTimeout(() => tutorial.maybeAutoStart(), 1200);
+  });
 
   notebookTracker.forEach(connectPanel);
   notebookTracker.widgetAdded.connect((_sender, panel) => {

@@ -1,0 +1,633 @@
+/*
+ * Sidebar surface — the Quest / Flowy / Chat widget mounted in the JupyterLab
+ * right area: shell, header, tabs, mission cards, chat thread, award log, and
+ * the Flowy tab.
+ */
+
+/* ---- Shell + header --------------------------------------------------- */
+.flowquest-sidebar {
+  height: 100%;
+  overflow: hidden;
+}
+
+.flowquest-shell {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: var(--jp-layout-color1);
+  position: relative;
+}
+
+.flowquest-header {
+  position: relative;
+  padding: var(--fq-pad);
+  display: grid;
+  gap: var(--fq-space-2);
+  background:
+    radial-gradient(
+      130% 120% at 0% 0%,
+      color-mix(in srgb, var(--fq-accent) 16%, transparent),
+      transparent 58%
+    ),
+    radial-gradient(
+      130% 120% at 100% 0%,
+      color-mix(in srgb, var(--fq-accent-5) 14%, transparent),
+      transparent 56%
+    ),
+    var(--jp-layout-color1);
+  border-bottom: var(--fq-border);
+}
+
+/* Glowing accent line along the bottom edge of the header. */
+.flowquest-header::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--fq-grad-brand);
+  opacity: 0.5;
+}
+
+.flowquest-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flowquest-brandMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--fq-radius-sm);
+  font-size: 20px;
+  line-height: 1;
+  color: #fff;
+  background: var(--fq-grad-brand);
+  box-shadow: var(--fq-shadow-accent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.flowquest-brandTitle {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-brandSubtitle {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+}
+
+.flowquest-headerMeta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---- Tabs ------------------------------------------------------------- */
+.flowquest-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-bottom: var(--fq-border);
+  background: var(--jp-layout-color1);
+}
+
+/* Sliding indicator: width = one third, translated by the active index. */
+.flowquest-tabIndicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2.5px;
+  width: calc(100% / 3);
+  border-radius: var(--fq-radius-pill) var(--fq-radius-pill) 0 0;
+  background: var(--fq-grad-brand);
+  box-shadow: 0 0 10px var(--fq-accent-glow);
+  transform: translateX(calc(var(--fq-tab-index, 0) * 100%));
+  transition: transform 0.34s var(--fq-spring);
+  pointer-events: none;
+}
+
+.flowquest-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 11px 6px;
+  border: none;
+  background: transparent;
+  color: var(--jp-ui-font-color2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 2.5px solid transparent;
+  transition: color var(--fq-transition), background var(--fq-transition);
+}
+
+.flowquest-tab:hover {
+  background: var(--fq-accent-soft);
+  color: var(--fq-accent);
+}
+
+.flowquest-tab.is-active {
+  color: var(--fq-accent);
+  background: transparent;
+}
+
+.flowquest-tab.is-active .flowquest-tabIcon {
+  transform: translateY(-1px) scale(1.05);
+}
+
+.flowquest-tabIcon {
+  font-size: 15px;
+  display: inline-flex;
+  transition: transform var(--fq-transition);
+}
+
+/* ---- Body + tab panels ------------------------------------------------ */
+.flowquest-body {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--fq-pad);
+  display: grid;
+  gap: var(--fq-gap);
+  align-content: start;
+  background:
+    radial-gradient(
+      120% 70% at 100% 0%,
+      color-mix(in srgb, var(--fq-accent-2) 7%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 60% at 0% 0%,
+      color-mix(in srgb, var(--fq-accent-5) 6%, transparent),
+      transparent 55%
+    );
+}
+
+.flowquest-tabPanel {
+  display: grid;
+  gap: var(--fq-gap);
+  align-content: start;
+}
+
+/* One-shot entrance when the active tab changes (class set by the widget). */
+.flowquest-body.is-enter > .flowquest-tabPanel > *,
+.flowquest-body.is-enter > .flowquest-chatPanel > * {
+  animation: flowquest-rise 0.4s var(--fq-ease-out) both;
+}
+.flowquest-body.is-enter > .flowquest-tabPanel > *:nth-child(2) { animation-delay: 0.05s; }
+.flowquest-body.is-enter > .flowquest-tabPanel > *:nth-child(3) { animation-delay: 0.1s; }
+.flowquest-body.is-enter > .flowquest-tabPanel > *:nth-child(n + 4) { animation-delay: 0.14s; }
+
+/* ---- Missions --------------------------------------------------------- */
+.flowquest-missionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--fq-space-2);
+}
+
+.flowquest-missionCard {
+  position: relative;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  padding: 11px 11px 11px 13px;
+  display: grid;
+  gap: 6px;
+  background: var(--fq-surface);
+  border-left-width: 3px;
+  transition: box-shadow var(--fq-transition), transform 0.16s var(--fq-spring),
+    border-left-width var(--fq-fast);
+}
+
+.flowquest-missionCard:hover {
+  box-shadow: var(--fq-shadow-soft);
+  transform: translateY(-2px);
+  border-left-width: 6px;
+}
+
+.flowquest-mission-exploration {
+  border-left-color: var(--fq-exploration);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fq-exploration) 8%, transparent),
+    transparent 38%
+  );
+}
+.flowquest-mission-understanding {
+  border-left-color: var(--fq-understanding);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fq-understanding) 8%, transparent),
+    transparent 38%
+  );
+}
+.flowquest-mission-stabilization {
+  border-left-color: var(--fq-stabilization);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fq-stabilization) 8%, transparent),
+    transparent 38%
+  );
+}
+.flowquest-mission-reflection {
+  border-left-color: var(--fq-reflection);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fq-reflection) 8%, transparent),
+    transparent 38%
+  );
+}
+
+.flowquest-missionCard.is-complete {
+  opacity: 0.55;
+  background: var(--fq-surface-2);
+}
+
+.flowquest-missionHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--jp-ui-font-color2);
+  font-weight: 700;
+}
+
+.flowquest-missionKind {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.flowquest-missionXp {
+  color: #fff;
+  background: var(--fq-grad-brand);
+  padding: 2px 9px;
+  border-radius: var(--fq-radius-pill);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 2px 8px var(--fq-accent-glow);
+}
+
+.flowquest-missionTitle {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-missionDesc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-missionHint {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  font-style: italic;
+}
+
+.flowquest-missionActions {
+  display: flex;
+  gap: 6px;
+}
+
+.flowquest-missionTargets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  align-items: center;
+}
+
+/* ---- Award log -------------------------------------------------------- */
+.flowquest-awardLog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.flowquest-awardLogEntry {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-left: 3px solid var(--fq-accent-4);
+  border-radius: 0 var(--fq-radius-sm) var(--fq-radius-sm) 0;
+  background: var(--fq-surface-2);
+}
+
+.flowquest-awardPoints {
+  font-family: var(--jp-code-font-family, monospace);
+  font-weight: 800;
+  color: var(--fq-stabilization);
+}
+
+.flowquest-awardLabel {
+  color: var(--jp-ui-font-color1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- Chat tab --------------------------------------------------------- */
+.flowquest-chatPanel {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: var(--fq-gap);
+  min-height: 0;
+  height: 100%;
+}
+
+.flowquest-chatNotice {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--fq-warn) 45%, transparent);
+  border-radius: var(--fq-radius-sm);
+  background: color-mix(in srgb, var(--fq-warn) 10%, transparent);
+  font-size: 12px;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-thread {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--jp-layout-color1);
+}
+
+.flowquest-chatEmpty {
+  margin: auto;
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 16px 10px;
+  max-width: 280px;
+}
+
+.flowquest-chatEmptyAvatar {
+  display: block;
+}
+
+.flowquest-chatEmptyTitle {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-chatStarters {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.flowquest-starterChip {
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--fq-transition), transform 0.1s var(--fq-ease),
+    border-color var(--fq-transition);
+}
+
+.flowquest-starterChip:hover {
+  background: var(--fq-accent-soft);
+  border-color: color-mix(in srgb, var(--fq-accent) 45%, transparent);
+  color: var(--fq-accent);
+  transform: translateY(-1px);
+}
+
+.flowquest-msg {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  max-width: 100%;
+}
+
+.flowquest-msg.is-user {
+  justify-content: flex-end;
+}
+
+.flowquest-msgAvatar {
+  flex: 0 0 auto;
+  width: 24px;
+  display: grid;
+  place-items: start center;
+  align-self: flex-start;
+  line-height: 0;
+}
+
+.flowquest-msgAvatar .flowquest-avatarSvg {
+  filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.2));
+}
+
+.flowquest-msgBubble {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 82%;
+  padding: 9px 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  line-height: 1.55;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.flowquest-msg.is-flowy .flowquest-msgBubble {
+  border-left: 3px solid var(--fq-accent-2);
+  border-bottom-left-radius: 4px;
+}
+
+.flowquest-msg.is-user .flowquest-msgBubble {
+  background: linear-gradient(135deg, var(--fq-accent-2), var(--fq-accent));
+  color: #fff;
+  border-color: transparent;
+  border-bottom-right-radius: 4px;
+  white-space: pre-wrap;
+}
+
+.flowquest-msg.is-flowy .flowquest-msgBubble > .flowquest-thinking {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.flowquest-compose {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--fq-surface);
+}
+
+.flowquest-contextChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  padding: 4px 10px;
+  background: var(--fq-surface-2);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-pill);
+}
+
+.flowquest-contextChipIcon {
+  font-size: 13px;
+  display: inline-flex;
+}
+
+.flowquest-contextChipLabel {
+  font-weight: 700;
+  color: var(--jp-ui-font-color1);
+}
+
+.flowquest-contextChipHint {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.flowquest-composeRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.flowquest-composeInput {
+  flex: 1 1 auto;
+  resize: none;
+  box-sizing: border-box;
+  padding: 10px;
+  max-height: 160px;
+  border: var(--fq-border-strong);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  transition: border-color var(--fq-transition), box-shadow var(--fq-transition);
+}
+
+.flowquest-composeInput:focus {
+  outline: none;
+  border-color: var(--fq-accent);
+  box-shadow: 0 0 0 3px var(--fq-accent-soft);
+}
+
+.flowquest-sendBtn {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--fq-radius-sm);
+  background-color: var(--fq-accent);
+  background-image: linear-gradient(135deg, var(--fq-accent-2), var(--fq-accent));
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: var(--fq-shadow-soft);
+  transition: transform 0.1s var(--fq-ease), box-shadow var(--fq-transition),
+    background-image var(--fq-transition);
+}
+
+.flowquest-sendBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--fq-shadow-pop);
+  background-color: var(--fq-accent);
+  background-image: linear-gradient(135deg, var(--fq-accent), var(--fq-accent-5));
+  color: #fff;
+}
+
+.flowquest-sendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.flowquest-composeFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- Flowy tab -------------------------------------------------------- */
+.flowquest-flowyIntro {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.flowquest-flowyAvatar {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+}
+
+.flowquest-flowyMark {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  line-height: 0;
+}
+
+.flowquest-flowyActions {
+  display: grid;
+  gap: 8px;
+}
+
+.flowquest-flowySource {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: var(--fq-surface-2);
+  border: var(--fq-border);
+  border-left: 3px solid var(--fq-accent-2);
+  border-radius: var(--fq-radius-sm);
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}

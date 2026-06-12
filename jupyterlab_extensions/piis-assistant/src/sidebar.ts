@@ -22,16 +22,11 @@ import type {
 import { EMPTY_QUEST_STATE } from './questState';
 import { EMPTY_NOTEBOOK } from './notebookContext';
 import { renderFlowySvg } from './flowySprite';
+import { categoryIcon, icon, type IconName } from './icons';
+import { hydrateAnimations } from './anim';
 
 const SIDEBAR_ID = 'jupyterlab-piis-assistant:sidebar';
 const MESSAGE_HISTORY_LIMIT = 10;
-
-const MISSION_KIND_ICON: Record<string, string> = {
-  exploration: '🧭',
-  understanding: '🧠',
-  stabilization: '🛠️',
-  reflection: '🪞'
-};
 
 const EMPTY_STATUS: EndpointStatus = {
   configured: false,
@@ -218,7 +213,7 @@ export class AssistantSidebar extends Widget {
       <div class="flowquest-shell">
         ${this.renderHeader()}
         ${this.renderTabs()}
-        <div class="flowquest-body">
+        <div class="flowquest-body${sameTab ? '' : ' is-enter'}">
           ${this._tab === 'quest' ? this.renderQuestTab() : ''}
           ${this._tab === 'flowy' ? this.renderFlowyTab() : ''}
           ${this._tab === 'chat' ? this.renderChatTab() : ''}
@@ -227,6 +222,7 @@ export class AssistantSidebar extends Widget {
       </div>
     `;
     this.bindHandlers();
+    hydrateAnimations(this.node);
     this._renderedTab = this._tab;
 
     if (prevScroll > 0) {
@@ -245,11 +241,11 @@ export class AssistantSidebar extends Widget {
     const level = state.level ?? 1;
     const progress = Math.max(0, Math.min(100, Math.round((state.levelProgress ?? 0) * 100)));
     const toNext = state.xpToNextLevel ?? 0;
-    const meterHtml = `<span class="flowquest-levelMeterFill" style="width:${progress}%"></span>`;
+    const meterHtml = `<span class="flowquest-levelMeterFill" data-fq-fill="${progress}" data-fq-key="sidebar:level"></span>`;
     return `
       <header class="flowquest-header">
         <div class="flowquest-brand">
-          <span class="flowquest-brandMark">🗺️</span>
+          <span class="flowquest-brandMark">${icon('brand', { size: 18 })}</span>
           <div class="flowquest-brandCopy">
             <div class="flowquest-brandTitle">FlowQuest</div>
             <div class="flowquest-brandSubtitle">Lv ${level} · ${escapeHtml(rank)}</div>
@@ -259,10 +255,10 @@ export class AssistantSidebar extends Widget {
           <span class="flowquest-pill ${statusClass}">${escapeHtml(
             this._status.configured ? 'live' : 'missing'
           )}</span>
-          <span class="flowquest-pill flowquest-pill-muted">${xp} XP</span>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="handbook" title="Open the FlowQuest handbook">📖</button>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="settings" title="Settings">⚙️</button>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="refresh">↻</button>
+          <span class="flowquest-pill flowquest-pill-muted"><span class="flowquest-num" data-fq-count="${xp}" data-fq-key="sidebar:xp">${xp}</span> XP</span>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="handbook" title="Open the FlowQuest handbook">${icon('handbook')}</button>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="settings" title="Settings">${icon('settings')}</button>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="refresh" title="Refresh">${icon('refresh')}</button>
         </div>
         <div class="flowquest-levelMeter" title="${state.xpIntoLevel ?? 0} / ${state.xpForNextLevel ?? 0} XP into level ${level}">
           ${meterHtml}
@@ -341,13 +337,17 @@ export class AssistantSidebar extends Widget {
   }
 
   private renderTabs(): string {
-    const tabs: Array<{ id: SidebarTab; icon: string; label: string }> = [
-      { id: 'quest', icon: '⭐', label: 'Quest' },
-      { id: 'flowy', icon: '🤖', label: 'Flowy' },
-      { id: 'chat', icon: '💬', label: 'Chat' }
+    const tabs: Array<{ id: SidebarTab; icon: IconName; label: string }> = [
+      { id: 'quest', icon: 'quest', label: 'Quest' },
+      { id: 'flowy', icon: 'flowy', label: 'Flowy' },
+      { id: 'chat', icon: 'chat', label: 'Chat' }
     ];
+    const activeIndex = Math.max(
+      0,
+      tabs.findIndex(tab => tab.id === this._tab)
+    );
     return `
-      <nav class="flowquest-tabs" role="tablist">
+      <nav class="flowquest-tabs" role="tablist" style="--fq-tab-index:${activeIndex}">
         ${tabs
           .map(
             tab => `
@@ -359,12 +359,13 @@ export class AssistantSidebar extends Widget {
                 data-action="tab"
                 data-tab="${tab.id}"
               >
-                <span class="flowquest-tabIcon">${escapeHtml(tab.icon)}</span>
+                <span class="flowquest-tabIcon">${icon(tab.icon)}</span>
                 <span>${escapeHtml(tab.label)}</span>
               </button>
             `
           )
           .join('')}
+        <span class="flowquest-tabIndicator" aria-hidden="true"></span>
       </nav>
     `;
   }
@@ -408,7 +409,7 @@ export class AssistantSidebar extends Widget {
             </div>
             <button type="button" class="flowquest-btn flowquest-btn-primary" data-action="analyze"
               ${this._analyzing ? 'disabled' : ''}>
-              ${this._analyzing ? 'Scanning…' : '🔄 Re-scan'}
+              ${this._analyzing ? 'Scanning…' : `${icon('rescan')} Re-scan`}
             </button>
           </div>
           <div class="flowquest-cardHead">
@@ -441,7 +442,7 @@ export class AssistantSidebar extends Widget {
             <button type="button" class="flowquest-btn" data-action="next-steps" ${
               !analysis || this._loadingNextSteps ? 'disabled' : ''
             }>
-              ${this._loadingNextSteps ? inlineSpinnerHtml('Thinking…') : '✨ Ask FlowQuest'}
+              ${this._loadingNextSteps ? inlineSpinnerHtml('Thinking…') : `${icon('sparkles')} Ask FlowQuest`}
             </button>
           </div>
           ${
@@ -456,7 +457,7 @@ export class AssistantSidebar extends Widget {
 
   private renderMissionCard(mission: Mission, claimed: boolean): string {
     const points = mission.xp ?? 0;
-    const kindIcon = MISSION_KIND_ICON[mission.kind] ?? '✨';
+    const kindIcon = categoryIcon(mission.kind);
     const targets = mission.cell_indices.length
       ? `<div class="flowquest-missionTargets">Cells: ${mission.cell_indices
           .map(
@@ -520,7 +521,7 @@ export class AssistantSidebar extends Widget {
         <div class="flowquest-flowyActions">
           <button type="button" class="flowquest-btn flowquest-btn-primary"
             data-action="flowy-quiz-selection" ${generating || !hasNotebook ? 'disabled' : ''}>
-            🎯 Quiz me on the active cell
+            ${icon('quiz')} Quiz me on the active cell
           </button>
           <div class="flowquest-dim">
             Flowy reads your active cell (or the code you last pasted) and writes
@@ -542,7 +543,7 @@ export class AssistantSidebar extends Widget {
         <div class="flowquest-card">
           <div class="flowquest-inlineError">
             <div class="flowquest-inlineErrorHead">
-              <span class="flowquest-inlineErrorIcon">⚠️</span>
+              <span class="flowquest-inlineErrorIcon">${icon('warn')}</span>
               <span>${escapeHtml(this._flowyError)}</span>
             </div>
           </div>
@@ -589,10 +590,10 @@ export class AssistantSidebar extends Widget {
     const feedback =
       selected !== null
         ? flowy.answeredCorrectly
-          ? `<div class="flowquest-quizFeedback is-correct"><span class="flowquest-quizFeedbackIcon">✓</span><span><strong>Correct.</strong> ${escapeHtml(
+          ? `<div class="flowquest-quizFeedback is-correct"><span class="flowquest-quizFeedbackIcon">${icon('check')}</span><span><strong>Correct.</strong> ${escapeHtml(
               quiz.explanation
             )}</span></div>`
-          : `<div class="flowquest-quizFeedback is-wrong"><span class="flowquest-quizFeedbackIcon">✗</span><span><strong>Not quite.</strong> ${escapeHtml(
+          : `<div class="flowquest-quizFeedback is-wrong"><span class="flowquest-quizFeedbackIcon">${icon('cross')}</span><span><strong>Not quite.</strong> ${escapeHtml(
               quiz.options[quiz.correctIndex] ?? ''
             )} is the right answer. ${escapeHtml(quiz.explanation)}</span></div>`
         : '';
@@ -678,7 +679,7 @@ export class AssistantSidebar extends Widget {
     const banner = configured
       ? ''
       : `<div class="flowquest-chatNotice">
-           ⚠️ No model configured yet.
+           ${icon('warn')} No model configured yet.
            <button type="button" class="flowquest-linkBtn" data-action="open-settings">Open Settings</button>
          </div>`;
 
@@ -701,7 +702,7 @@ export class AssistantSidebar extends Widget {
             >${escapeHtml(this._prompt)}</textarea>
             <button type="button" class="flowquest-sendBtn" data-action="ask" title="Send" ${
               disabled ? 'disabled' : ''
-            }>➤</button>
+            }>${icon('send')}</button>
           </div>
           <div class="flowquest-composeFoot">
             <span class="flowquest-dim">${escapeHtml(this._meta || this._status.model || 'no model')}</span>
@@ -736,7 +737,7 @@ export class AssistantSidebar extends Widget {
     if (!notebook.hasNotebook) {
       return `
         <div class="flowquest-contextChip" title="Flowy automatically sees this context">
-          <span class="flowquest-contextChipIcon">🗂️</span>
+          <span class="flowquest-contextChipIcon">${icon('contextWorkspace')}</span>
           <span class="flowquest-contextChipLabel">Workspace</span>
           <span class="flowquest-contextChipHint">no notebook</span>
         </div>
@@ -748,7 +749,7 @@ export class AssistantSidebar extends Widget {
         : 'no active cell';
     return `
       <div class="flowquest-contextChip" title="Flowy sees your whole notebook plus which cell is active">
-        <span class="flowquest-contextChipIcon">📓</span>
+        <span class="flowquest-contextChipIcon">${icon('contextNotebook')}</span>
         <span class="flowquest-contextChipLabel">${escapeHtml(notebook.notebookName)}</span>
         <span class="flowquest-contextChipHint">${escapeHtml(
           `${notebook.cellCount} cells · ${cellNote}`

@@ -6,6 +6,7 @@
  */
 
 import { FlowquestApiError, escapeHtml } from './api';
+import { errorIconSvg, icon } from './icons';
 
 export interface FriendlyError {
   kind: string;
@@ -20,17 +21,9 @@ export function toFriendlyError(error: unknown): FriendlyError {
   return { kind: 'other', message };
 }
 
-const ERROR_ICONS: Record<string, string> = {
-  timeout: '⏱️',
-  rate_limit: '🐌',
-  auth: '🔐',
-  network: '📡',
-  http: '⚠️',
-  other: '⚠️'
-};
-
+/** Friendly Lucide icon (inline SVG string) for an error kind. */
 export function errorIcon(kind: string): string {
-  return ERROR_ICONS[kind] ?? '⚠️';
+  return errorIconSvg(kind);
 }
 
 /** Compact "thinking" indicator with three pulsing dots and a label. */
@@ -64,7 +57,7 @@ export function errorBlockHtml(
   const retry = options.retryAction
     ? `<button type="button" class="flowquest-btn flowquest-btn-primary" data-action="${escapeHtml(
         options.retryAction
-      )}">↻ ${escapeHtml(options.retryLabel ?? 'Retry')}</button>`
+      )}">${icon('refresh')} ${escapeHtml(options.retryLabel ?? 'Retry')}</button>`
     : '';
   const dismiss = options.dismissAction
     ? `<button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="${escapeHtml(
@@ -74,7 +67,7 @@ export function errorBlockHtml(
   return `
     <div class="flowquest-inlineError">
       <div class="flowquest-inlineErrorHead">
-        <span class="flowquest-inlineErrorIcon">${escapeHtml(errorIcon(err.kind))}</span>
+        <span class="flowquest-inlineErrorIcon">${errorIcon(err.kind)}</span>
         <span>${escapeHtml(err.message)}</span>
       </div>
       ${

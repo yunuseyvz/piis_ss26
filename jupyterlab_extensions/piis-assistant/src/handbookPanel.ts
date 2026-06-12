@@ -2,8 +2,8 @@
  * FlowQuest handbook.
  *
  * A modal-style overlay (same shell as the settings panel) that documents what
- * FlowQuest is and how it works, organised into chapters. Opened from the 📖
- * button in the sidebar header and the in-notebook banner.
+ * FlowQuest is and how it works, organised into chapters. Opened from the
+ * handbook button in the sidebar header and the in-notebook banner.
  *
  * Chapters are plain Markdown rendered with the in-house `renderMarkdown`
  * (escape-first, so the static content is safe). A left-hand table of contents
@@ -11,6 +11,7 @@
  */
 
 import { escapeHtml } from './api';
+import { icon, type IconName } from './icons';
 import { renderMarkdown } from './markdown';
 
 const HOST_CLASS = 'flowquest-handbookHost';
@@ -18,7 +19,7 @@ const HOST_CLASS = 'flowquest-handbookHost';
 interface Chapter {
   id: string;
   title: string;
-  icon: string;
+  icon: IconName;
   body: string;
 }
 
@@ -26,7 +27,7 @@ const CHAPTERS: Chapter[] = [
   {
     id: 'overview',
     title: 'What is FlowQuest?',
-    icon: '🗺️',
+    icon: 'handbook',
     body: `
 # What is FlowQuest?
 
@@ -57,7 +58,7 @@ turning into a generic chatbot.
   {
     id: 'xp',
     title: 'XP, levels & categories',
-    icon: '⭐',
+    icon: 'star',
     body: `
 # XP, levels & categories
 
@@ -77,10 +78,10 @@ reflect your whole journey.
 Every XP award also lands in one of four buckets, shown as the donut chart in the
 header:
 
-- 🧭 **Exploration** — discovering and reading your notebook.
-- 🧠 **Understanding** — proving you grasp what the code does.
-- 🛠️ **Stabilization** — improving notebook structure and hygiene.
-- 🪞 **Reflection** — reasoning about your choices in your own words.
+- **Exploration** — discovering and reading your notebook.
+- **Understanding** — proving you grasp what the code does.
+- **Stabilization** — improving notebook structure and hygiene.
+- **Reflection** — reasoning about your choices in your own words.
 
 The categories are purely informational — they describe *how* you earned XP. Your
 level depends only on the total.
@@ -100,7 +101,7 @@ level depends only on the total.
   {
     id: 'missions',
     title: 'Missions',
-    icon: '🎯',
+    icon: 'quest',
     body: `
 # Missions
 
@@ -119,28 +120,28 @@ Examples:
 - **Explain the choice** — reflect on a decision in a key cell.
 
 Find missions in the **Quest** tab and in the inline panel of any cell they
-target (marked with a ★ star on the cell chip). A mission is earnable **once per
+target (marked with a star icon on the cell chip). A mission is earnable **once per
 notebook**, so the same mission in a different notebook is a fresh goal.
 `
   },
   {
     id: 'regions',
     title: 'Cell regions & analysis',
-    icon: '🔍',
+    icon: 'region-explore',
     body: `
 # Cell regions & analysis
 
 Every time you edit, FlowQuest analyses the notebook **locally** (no LLM, no
 network) and tags each cell with a **region** based on what its code does:
 
-- ⚙️ **Setup** — imports, config, random seeds.
-- 📦 **Load** — reading data (\`read_csv\`, \`load_dataset\`, …).
-- 🧼 **Clean** — filtering, transforming, scaling, train/test split.
-- 🔍 **Explore** — \`describe\`, \`head\`, \`value_counts\`, correlations.
-- 📊 **Visualize** — plots and charts.
-- 🧠 **Model** — fitting, predicting, scoring.
-- 🖨️ **Output** — printing results.
-- 📝 **Narrative** — markdown cells.
+- **Setup** — imports, config, random seeds.
+- **Load** — reading data (\`read_csv\`, \`load_dataset\`, …).
+- **Clean** — filtering, transforming, scaling, train/test split.
+- **Explore** — \`describe\`, \`head\`, \`value_counts\`, correlations.
+- **Visualize** — plots and charts.
+- **Model** — fitting, predicting, scoring.
+- **Output** — printing results.
+- **Narrative** — markdown cells.
 
 ## The chip badges
 
@@ -162,7 +163,7 @@ inline **Issues** list and which missions get generated.
   {
     id: 'activities',
     title: 'Quizzes & activities',
-    icon: '🧠',
+    icon: 'understanding',
     body: `
 # Quizzes & activities
 
@@ -173,9 +174,9 @@ you're working on.
 
 Three kinds:
 
-- 🎯 **Understanding check** — a multiple-choice question about a cell.
-- 🔮 **Predict the result** — guess what a cell produces before running it.
-- 🗣️ **Teach it back** — explain a cell in your own words; the assistant grades
+- **Understanding check** — a multiple-choice question about a cell.
+- **Predict the result** — guess what a cell produces before running it.
+- **Teach it back** — explain a cell in your own words; the assistant grades
   your answer against a short rubric.
 
 Multiple-choice answers are graded instantly and locally. Teach-back answers are
@@ -192,7 +193,7 @@ understand what you dropped in. You can also trigger this from the **Flowy** tab
   {
     id: 'chat',
     title: 'Chat & difficulty',
-    icon: '💬',
+    icon: 'chat',
     body: `
 # Chat & difficulty
 
@@ -210,15 +211,15 @@ Each notebook has a **difficulty** (easy / medium / hard) set in
 response — explanations, quiz wording, reflective questions, and grading
 strictness — but it does **not** change how much XP anything is worth.
 
-- 🌱 **Easy** — beginner-friendly, gentle.
-- 🧗 **Medium** — practitioner depth, balanced.
-- 🔥 **Hard** — senior-reviewer mode, terse and strict.
+- **Easy** — beginner-friendly, gentle.
+- **Medium** — practitioner depth, balanced.
+- **Hard** — senior-reviewer mode, terse and strict.
 `
   },
   {
     id: 'setup',
     title: 'Setup & data',
-    icon: '⚙️',
+    icon: 'settings',
     body: `
 # Setup & where your data lives
 
@@ -251,6 +252,12 @@ export class HandbookPanel {
   private host: HTMLElement | null = null;
   private isOpen = false;
   private activeChapter = CHAPTERS[0].id;
+  /** Optional hook to (re)launch the guided tour from the handbook header. */
+  private onReplayTour: (() => void) | null = null;
+
+  constructor(options: { onReplayTour?: () => void } = {}) {
+    this.onReplayTour = options.onReplayTour ?? null;
+  }
 
   isVisible(): boolean {
     return this.isOpen;
@@ -288,7 +295,7 @@ export class HandbookPanel {
         <button type="button"
           class="flowquest-handbookNavItem ${c.id === chapter.id ? 'is-active' : ''}"
           data-action="chapter" data-chapter="${escapeHtml(c.id)}">
-          <span class="flowquest-handbookNavIcon">${escapeHtml(c.icon)}</span>
+          <span class="flowquest-handbookNavIcon">${icon(c.icon)}</span>
           <span>${escapeHtml(c.title)}</span>
         </button>
       `
@@ -299,13 +306,22 @@ export class HandbookPanel {
       <div class="flowquest-handbookModal flowquest" role="dialog" aria-modal="true" aria-label="FlowQuest handbook">
         <header class="flowquest-settingsHeader">
           <div class="flowquest-settingsHeading">
-            <span class="flowquest-settingsIcon">📖</span>
+            <span class="flowquest-settingsIcon">${icon('handbook', { size: 20 })}</span>
             <div>
               <div class="flowquest-cardTitle">FlowQuest Handbook</div>
               <div class="flowquest-dim">Everything FlowQuest is and does.</div>
             </div>
           </div>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">✕ Close</button>
+          <div class="flowquest-handbookHeaderActions">
+            ${
+              this.onReplayTour
+                ? `<button type="button" class="flowquest-btn" data-action="replay-tour">${icon(
+                    'flowy'
+                  )} Replay tour</button>`
+                : ''
+            }
+            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">${icon('close')} Close</button>
+          </div>
         </header>
 
         <div class="flowquest-handbookBody">
@@ -323,6 +339,11 @@ export class HandbookPanel {
         const action = element.dataset.action;
         if (action === 'close') {
           this.close();
+          return;
+        }
+        if (action === 'replay-tour') {
+          this.close();
+          this.onReplayTour?.();
           return;
         }
         if (action === 'chapter') {

@@ -8,6 +8,8 @@
 import type { NotebookPanel } from '@jupyterlab/notebook';
 
 import { escapeHtml, notebookAwardPrefix } from './api';
+import { difficultyIcon, icon } from './icons';
+import { hydrateAnimations } from './anim';
 import type { AnalysisResponse, QuestState } from './types';
 
 const HOST_CLASS = 'flowquest-banner';
@@ -72,7 +74,7 @@ export class NotebookBanner {
     const progress = Math.max(0, Math.min(100, Math.round((state?.levelProgress ?? 0) * 100)));
     const toNext = state?.xpToNextLevel ?? 0;
 
-    const meterHtml = `<span class="flowquest-levelMeterFill" style="width:${progress}%"></span>`;
+    const meterHtml = `<span class="flowquest-levelMeterFill" data-fq-fill="${progress}" data-fq-key="banner:level"></span>`;
 
     const missions = analysis?.missions ?? [];
     const completedSet = new Set(state?.completedAwardKeys ?? []);
@@ -85,7 +87,7 @@ export class NotebookBanner {
     this.host.innerHTML = `
       <div class="flowquest-bannerInner">
         <button type="button" class="flowquest-bannerBrand" data-action="open-sidebar">
-          <span class="flowquest-bannerMark">🗺️</span>
+          <span class="flowquest-bannerMark">${icon('brand', { size: 20 })}</span>
           <span class="flowquest-bannerBrandText">
             <span class="flowquest-bannerTitle">FlowQuest</span>
             <span class="flowquest-bannerSub">${escapeHtml(rank)}</span>
@@ -95,7 +97,7 @@ export class NotebookBanner {
         <button type="button" class="flowquest-bannerLevel" data-action="open-quest" title="${xp} XP total">
           <span class="flowquest-bannerLevelTop">
             <span class="flowquest-bannerLevelBadge">Lv ${level}</span>
-            <span class="flowquest-bannerLevelXp">${xp} XP</span>
+            <span class="flowquest-bannerLevelXp"><span class="flowquest-num" data-fq-count="${xp}" data-fq-key="banner:xp">${xp}</span> XP</span>
           </span>
           <span class="flowquest-levelMeter">${meterHtml}</span>
           <span class="flowquest-bannerLevelFoot">${
@@ -122,32 +124,34 @@ export class NotebookBanner {
             class="flowquest-bannerDifficulty"
             data-action="open-difficulty"
             title="Difficulty — click to change"
-          >${escapeHtml(difficultyLabelFor(state?.difficulty ?? 'medium'))}</button>
+          >${difficultyIcon(state?.difficulty ?? 'medium')} ${escapeHtml(
+            difficultyLabelFor(state?.difficulty ?? 'medium')
+          )}</button>
           <button
             type="button"
             class="flowquest-bannerIconBtn"
             data-action="open-handbook"
             title="FlowQuest handbook"
-          >📖</button>
+          >${icon('handbook')}</button>
           <button
             type="button"
             class="flowquest-bannerIconBtn"
             data-action="open-settings"
             title="FlowQuest settings"
-          >⚙️</button>
+          >${icon('settings')}</button>
           <button
             type="button"
             class="flowquest-bannerIconBtn"
             data-action="rescan"
             title="Re-scan notebook"
             ${this.analyzing ? 'disabled' : ''}
-          >${this.analyzing ? '…' : '↻'}</button>
+          >${this.analyzing ? icon('hint') : icon('rescan')}</button>
           <button
             type="button"
             class="flowquest-bannerIconBtn"
             data-action="open-sidebar"
             title="Open FlowQuest sidebar"
-          >▸</button>
+          >${icon('open')}</button>
         </div>
       </div>
     `;
@@ -179,6 +183,8 @@ export class NotebookBanner {
         this.callbacks.openSidebar();
       };
     });
+
+    hydrateAnimations(this.host);
   }
 
   private analysis: AnalysisResponse | null = null;
@@ -189,7 +195,7 @@ export class NotebookBanner {
 
 function difficultyLabelFor(value: string): string {
   const normalized = (value || '').toLowerCase();
-  if (normalized === 'easy') return '🌱 easy';
-  if (normalized === 'hard') return '🔥 hard';
-  return '🧗 medium';
+  if (normalized === 'easy') return 'easy';
+  if (normalized === 'hard') return 'hard';
+  return 'medium';
 }

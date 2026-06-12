@@ -13,6 +13,7 @@
 
 import { apiRequest, escapeHtml } from './api';
 import type { DifficultyLevel, GlobalSettings, QuestState } from './types';
+import { difficultyIcon, icon } from './icons';
 import { inlineSpinnerHtml, toFriendlyError } from './uiFeedback';
 
 const HOST_CLASS = 'flowquest-settingsHost';
@@ -28,25 +29,21 @@ const DIFFICULTY_OPTIONS: Array<{
   value: DifficultyLevel;
   label: string;
   blurb: string;
-  icon: string;
 }> = [
   {
     value: 'easy',
     label: 'Easy',
-    blurb: 'Beginner-friendly explanations, gentle quizzes, generous baseline.',
-    icon: '🌱'
+    blurb: 'Beginner-friendly explanations, gentle quizzes, generous baseline.'
   },
   {
     value: 'medium',
     label: 'Medium',
-    blurb: 'Practitioner-level depth and balanced grading.',
-    icon: '🧗'
+    blurb: 'Practitioner-level depth and balanced grading.'
   },
   {
     value: 'hard',
     label: 'Hard',
-    blurb: 'Senior-reviewer mode. Strict baseline, sharp quizzes.',
-    icon: '🔥'
+    blurb: 'Senior-reviewer mode. Strict baseline, sharp quizzes.'
   }
 ];
 
@@ -176,22 +173,22 @@ export class SettingsPanel {
       <div class="flowquest-settingsModal flowquest" role="dialog" aria-modal="true">
         <header class="flowquest-settingsHeader">
           <div class="flowquest-settingsHeading">
-            <span class="flowquest-settingsIcon">⚙️</span>
+            <span class="flowquest-settingsIcon">${icon('settings', { size: 20 })}</span>
             <div>
               <div class="flowquest-cardTitle">FlowQuest Settings</div>
               <div class="flowquest-dim">Global model + per-notebook quest options.</div>
             </div>
           </div>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">✕ Close</button>
+          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">${icon('close')} Close</button>
         </header>
 
         <nav class="flowquest-settingsTabs" role="tablist">
           <button type="button" role="tab" aria-selected="${this.tab === 'global'}"
             class="flowquest-settingsTab ${this.tab === 'global' ? 'is-active' : ''}"
-            data-action="tab" data-tab="global">🌐 Global</button>
+            data-action="tab" data-tab="global">${icon('globe')} Global</button>
           <button type="button" role="tab" aria-selected="${this.tab === 'notebook'}"
             class="flowquest-settingsTab ${this.tab === 'notebook' ? 'is-active' : ''}"
-            data-action="tab" data-tab="notebook">📓 This notebook</button>
+            data-action="tab" data-tab="notebook">${icon('contextNotebook')} This notebook</button>
         </nav>
 
         <div class="flowquest-settingsBody">
@@ -290,10 +287,10 @@ export class SettingsPanel {
 
     const storageNote = (() => {
       if (storage === 'keychain') {
-        return `<div class="flowquest-dim flowquest-storageNote is-secure">🔐 Stored in your OS keychain. Not on disk.</div>`;
+        return `<div class="flowquest-dim flowquest-storageNote is-secure">${icon('auth')} Stored in your OS keychain. Not on disk.</div>`;
       }
       if (storage === 'file') {
-        return `<div class="flowquest-dim flowquest-storageNote is-warn">⚠️ Stored in <code>~/.flowquest/settings.json</code> (mode 0600). Install <code>keyring</code> with a usable backend (e.g. <code>libsecret</code> on Linux) to move it to your OS keychain.</div>`;
+        return `<div class="flowquest-dim flowquest-storageNote is-warn">${icon('warn')} Stored in <code>~/.flowquest/settings.json</code> (mode 0600). Install <code>keyring</code> with a usable backend (e.g. <code>libsecret</code> on Linux) to move it to your OS keychain.</div>`;
       }
       if (storage === 'env') {
         return `<div class="flowquest-dim flowquest-storageNote">From environment / <code>.env</code>. Saving here will move it to ${
@@ -377,7 +374,7 @@ export class SettingsPanel {
               </div>
             `
             : `<div class="flowquest-actionsRow">
-                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-confirm" data-scope="global">🧹 Reset all XP &amp; levels</button>
+                <button type="button" class="flowquest-btn flowquest-btn-danger" data-action="wipe-confirm" data-scope="global">${icon('trash')} Reset all XP &amp; levels</button>
               </div>`
         }
       </section>
@@ -396,7 +393,7 @@ export class SettingsPanel {
           data-action="difficulty"
           data-level="${escapeHtml(option.value)}"
         >
-          <span class="flowquest-difficultyIcon">${escapeHtml(option.icon)}</span>
+          <span class="flowquest-difficultyIcon">${difficultyIcon(option.value)}</span>
           <span class="flowquest-difficultyLabel">${escapeHtml(option.label)}</span>
           <span class="flowquest-difficultyBlurb">${escapeHtml(option.blurb)}</span>
         </button>
@@ -430,7 +427,7 @@ export class SettingsPanel {
               </div>
             `
             : `<div class="flowquest-actionsRow">
-                <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="wipe-confirm" data-scope="notebook">↩️ Clear this notebook's checkpoints</button>
+                <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="wipe-confirm" data-scope="notebook">${icon('refresh')} Clear this notebook's checkpoints</button>
               </div>`
         }
       </section>
