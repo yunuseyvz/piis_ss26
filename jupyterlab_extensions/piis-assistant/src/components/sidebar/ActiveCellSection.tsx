@@ -226,7 +226,26 @@ export function ActiveCellSection({
             </div>
           )}
 
-          {activeMode === 'reflect' && (
+          {activeMode === 'reflect' && (() => {
+            const cellReflections = globalState.reflections
+              .filter(r => r.cellIndex === notebook.activeCellIndex)
+              .sort((a, b) => b.ts - a.ts);
+
+            const formatTime = (ts: number) => {
+              const d = new Date(ts * 1000);
+              const now = Date.now();
+              const diffMs = now - d.getTime();
+              const diffMin = Math.floor(diffMs / 60000);
+              if (diffMin < 1) return 'just now';
+              if (diffMin < 60) return `${diffMin}m ago`;
+              const diffH = Math.floor(diffMin / 60);
+              if (diffH < 24) return `${diffH}h ago`;
+              const diffD = Math.floor(diffH / 24);
+              if (diffD < 7) return `${diffD}d ago`;
+              return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            };
+
+            return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {reflectLoading && <Spinner label="Thinking of a question..." />}
               {reflectError && <ErrorBlock error={reflectError} onRetry={runReflect} />}
@@ -258,12 +277,72 @@ export function ActiveCellSection({
               )}
               
               {reflectSubmitted && (
-                <div className="flowquest-block flowquest-success" style={{ borderLeft: '4px solid var(--fq-success)', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, margin: 0 }}>
-                  <Icon name="success" /> Reflection saved! (+XP)
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div className="flowquest-block flowquest-success" style={{ borderLeft: '4px solid var(--fq-success)', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, margin: 0 }}>
+                    <Icon name="success" /> Reflection saved! (+XP)
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      className="flowquest-btn flowquest-btn-ghost"
+                      style={{ fontSize: '12px' }}
+                      onClick={() => {
+                        setReflectPrompt(null);
+                        setReflectSubmitted(false);
+                        setReflectAnswer('');
+                        runReflect();
+                      }}
+                    >
+                      <Icon name="reflect" /> Reflect again
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Saved reflections for this cell */}
+              {cellReflections.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ fontWeight: 700, fontSize: '11px', textTransform: 'uppercase', color: 'var(--fq-reflection)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <Icon name="reflect" /> Your Reflections ({cellReflections.length})
+                  </div>
+                  {cellReflections.map((r, idx) => (
+                    <div
+                      key={`${r.ts}-${idx}`}
+                      className="flowquest-block"
+                      style={{
+                        margin: 0,
+                        borderLeft: '3px solid var(--fq-reflection)',
+                        background: 'var(--fq-surface)',
+                        padding: '10px 14px',
+                      }}
+                    >
+                      <div style={{ fontSize: '13px', color: 'var(--jp-ui-font-color0)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {r.text}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--jp-ui-font-color2)', marginTop: '6px', textAlign: 'right' }}>
+                        {formatTime(r.ts)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Show prompt button when no active prompt and no loading */}
+              {!reflectPrompt && !reflectLoading && !reflectError && !reflectSubmitted && cellReflections.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <button
+                    type="button"
+                    className="flowquest-btn flowquest-btn-ghost"
+                    style={{ fontSize: '12px' }}
+                    onClick={runReflect}
+                  >
+                    <Icon name="reflect" /> New reflection prompt
+                  </button>
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {activeMode === 'quiz' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
