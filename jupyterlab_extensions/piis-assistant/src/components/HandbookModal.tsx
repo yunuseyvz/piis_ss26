@@ -1,20 +1,15 @@
 /**
- * FlowQuest handbook.
+ * React handbook modal for FlowQuest.
  *
- * A modal-style overlay (same shell as the settings panel) that documents what
- * FlowQuest is and how it works, organised into chapters. Opened from the
- * handbook button in the sidebar header and the in-notebook banner.
- *
- * Chapters are plain Markdown rendered with the in-house `renderMarkdown`
- * (escape-first, so the static content is safe). A left-hand table of contents
- * switches chapters; the content pane scrolls independently.
+ * Displays the static guide chapters with a table of contents and a replay tour
+ * button.
  */
 
-import { escapeHtml } from './api';
-import { icon, type IconName } from './icons';
-import { renderMarkdown } from './markdown';
+import { useState } from 'react';
 
-const HOST_CLASS = 'flowquest-handbookHost';
+import { Markdown } from './shared';
+import { Icon } from './shared/Icon';
+import type { IconName } from '../icons';
 
 interface Chapter {
   id: string;
@@ -248,114 +243,71 @@ missions, XP, auto-checks — work fully **without** a model configured.
   }
 ];
 
-export class HandbookPanel {
-  private host: HTMLElement | null = null;
-  private isOpen = false;
-  private activeChapter = CHAPTERS[0].id;
-  /** Optional hook to (re)launch the guided tour from the handbook header. */
-  private onReplayTour: (() => void) | null = null;
+interface HandbookModalProps {
+  isOpen: boolean;
+  initialChapter?: string;
+  onClose: () => void;
+}
 
-  constructor(options: { onReplayTour?: () => void } = {}) {
-    this.onReplayTour = options.onReplayTour ?? null;
+export function HandbookModal({
+  isOpen,
+  initialChapter,
+  onClose
+}: HandbookModalProps): JSX.Element | null {
+  const [activeChapter, setActiveChapter] = useState(
+    CHAPTERS.find(c => c.id === initialChapter)?.id ?? CHAPTERS[0].id
+  );
+
+  if (!isOpen) {
+    return null;
   }
 
-  isVisible(): boolean {
-    return this.isOpen;
-  }
+  const chapter = CHAPTERS.find(c => c.id === activeChapter) ?? CHAPTERS[0];
 
-  open(chapterId?: string): void {
-    if (chapterId && CHAPTERS.some(c => c.id === chapterId)) {
-      this.activeChapter = chapterId;
-    }
-    if (this.isOpen) {
-      this.render();
-      return;
-    }
-    this.isOpen = true;
-    this.host = document.createElement('div');
-    this.host.className = HOST_CLASS;
-    document.body.appendChild(this.host);
-    this.render();
-  }
-
-  close(): void {
-    this.isOpen = false;
-    this.host?.remove();
-    this.host = null;
-  }
-
-  private render(): void {
-    if (!this.host) {
-      return;
-    }
-    const chapter = CHAPTERS.find(c => c.id === this.activeChapter) ?? CHAPTERS[0];
-
-    const navHtml = CHAPTERS.map(
-      c => `
-        <button type="button"
-          class="flowquest-handbookNavItem ${c.id === chapter.id ? 'is-active' : ''}"
-          data-action="chapter" data-chapter="${escapeHtml(c.id)}">
-          <span class="flowquest-handbookNavIcon">${icon(c.icon)}</span>
-          <span>${escapeHtml(c.title)}</span>
-        </button>
-      `
-    ).join('');
-
-    this.host.innerHTML = `
-      <div class="flowquest-settingsBackdrop" data-action="close"></div>
-      <div class="flowquest-handbookModal flowquest" role="dialog" aria-modal="true" aria-label="FlowQuest handbook">
-        <header class="flowquest-settingsHeader">
-          <div class="flowquest-settingsHeading">
-            <span class="flowquest-settingsIcon">${icon('handbook', { size: 20 })}</span>
+  return (
+    <div className="flowquest-handbookHost">
+      <div className="flowquest-settingsBackdrop" onClick={onClose} />
+      <div className="flowquest-handbookModal flowquest" role="dialog" aria-modal="true" aria-label="FlowQuest handbook">
+        <header className="flowquest-settingsHeader">
+          <div className="flowquest-settingsHeading">
+            <span className="flowquest-settingsIcon">
+              <Icon name="handbook" size={20} />
+            </span>
             <div>
-              <div class="flowquest-cardTitle">FlowQuest Handbook</div>
-              <div class="flowquest-dim">Everything FlowQuest is and does.</div>
+              <div className="flowquest-cardTitle">FlowQuest Handbook</div>
+              <div className="flowquest-dim">Everything FlowQuest is and does.</div>
             </div>
           </div>
-          <div class="flowquest-handbookHeaderActions">
-            ${
-              this.onReplayTour
-                ? `<button type="button" class="flowquest-btn" data-action="replay-tour">${icon(
-                    'flowy'
-                  )} Replay tour</button>`
-                : ''
-            }
-            <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">${icon('close')} Close</button>
+          <div className="flowquest-handbookHeaderActions">
+            <button type="button" className="flowquest-btn flowquest-btn-ghost" onClick={onClose}>
+              <Icon name="close" /> Close
+            </button>
           </div>
         </header>
 
-        <div class="flowquest-handbookBody">
-          <nav class="flowquest-handbookNav" role="tablist">${navHtml}</nav>
-          <article class="flowquest-handbookContent flowquest-md">
-            ${renderMarkdown(chapter.body)}
+        <div className="flowquest-handbookBody">
+          <nav className="flowquest-handbookNav" role="tablist">
+            {CHAPTERS.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                className={`flowquest-handbookNavItem ${c.id === chapter.id ? 'is-active' : ''}`}
+                onClick={() => {
+                  setActiveChapter(c.id);
+                }}
+              >
+                <span className="flowquest-handbookNavIcon">
+                  <Icon name={c.icon} />
+                </span>
+                <span>{c.title}</span>
+              </button>
+            ))}
+          </nav>
+          <article className="flowquest-handbookContent flowquest-md">
+            <Markdown source={chapter.body} />
           </article>
         </div>
       </div>
-    `;
-
-    this.host.querySelectorAll<HTMLElement>('[data-action]').forEach(element => {
-      element.onclick = event => {
-        event.stopPropagation();
-        const action = element.dataset.action;
-        if (action === 'close') {
-          this.close();
-          return;
-        }
-        if (action === 'replay-tour') {
-          this.close();
-          this.onReplayTour?.();
-          return;
-        }
-        if (action === 'chapter') {
-          const next = element.dataset.chapter;
-          if (next) {
-            this.activeChapter = next;
-            this.render();
-            const content = this.host?.querySelector('.flowquest-handbookContent');
-            content?.scrollTo({ top: 0 });
-          }
-        }
-      };
-    });
-  }
+    </div>
+  );
 }

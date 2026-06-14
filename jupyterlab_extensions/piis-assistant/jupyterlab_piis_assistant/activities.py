@@ -264,7 +264,7 @@ def generate_activity(
 
 def _generate_json(
     client: AssistantClient, system_prompt: str, user_prompt: str
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -292,45 +292,28 @@ def _generate_json(
                     ),
                 },
             ]
-    # Signal "couldn't parse" to the caller via None; callers supply fallbacks.
-    _ = last_error
-    return None
+    detail = str(last_error) if last_error else "unknown parse error"
+    raise ValueError(f"The model returned content that could not be parsed after 3 attempts. {detail}")
 
 
 def _build_choice(raw: dict[str, Any] | None, region: str) -> dict[str, Any]:
     if raw is None:
-        from .ai_backend import _fallback_quiz
-
-        payload = _fallback_quiz(region)
-        payload["model"] = "fallback"
-        payload["fallbackReason"] = "Could not parse activity JSON from the model."
-        return payload
-    try:
-        return _normalize_quiz(raw)
-    except ValueError:
-        from .ai_backend import _fallback_quiz
-
-        payload = _fallback_quiz(region)
-        payload["model"] = "fallback"
-        return payload
+        raise ValueError("Activity generation failed: no response from the model.")
+    return _normalize_quiz(raw)
 
 
 def _build_open(raw: dict[str, Any] | None) -> dict[str, Any]:
     if raw is None:
-        return {
-            "prompt": "In your own words, explain what this cell does and why it matters here.",
-            "rubric": ["Names what the cell does", "Explains why it's needed"],
-            "hint": "Think about the inputs, the transformation, and the result.",
-            "fallbackReason": "Could not parse activity JSON from the model.",
-        }
+        raise ValueError("Activity generation failed: no response from the model.")
     prompt = _clip_text(str(raw.get("prompt") or "").strip(), 400)
     if not prompt:
-        prompt = "In your own words, explain what this cell does and why it matters here."
+        raise ValueError("The model returned an activity without a prompt field.")
     rubric_raw = raw.get("rubric")
     rubric: list[str] = []
     if isinstance(rubric_raw, list):
         rubric = [_clip_text(str(point).strip(), 220) for point in rubric_raw if str(point).strip()]
-    rubric = rubric[:4] or ["Names what the cell does", "Explains why it's needed"]
+    if not rubric:
+        raise ValueError("The model returned an activity without a valid rubric.")
     hint = _clip_text(str(raw.get("hint") or "").strip(), 240)
     return {"prompt": prompt, "rubric": rubric, "hint": hint}
 
@@ -350,8 +333,8 @@ def grade_open_activity(
 ) -> dict[str, Any]:
     """LLM-grade a free-text answer. Returns ``{passed, score, feedback, model}``.
 
-    Falls back to a lenient length-based heuristic if the model can't be
-    reached or its reply can't be parsed, so the learner is never blocked.
+    Requires a configured model endpoint. Raises ``RuntimeError`` if the endpoint
+    is not configured, or ``ValueError`` if the model response cannot be parsed.
     """
     answer = (answer or "").strip()
     if not answer:
@@ -359,7 +342,10 @@ def grade_open_activity(
 
     client = AssistantClient.from_env(start_path=start_path)
     if client is None:
-        return _heuristic_grade(answer)
+        raise RuntimeError(
+            "Missing endpoint configuration. "
+            "Open FlowQuest → Settings and provide a model, base URL, and API key."
+        )
 
     rubric_text = "\n".join(f"- {point}" for point in (rubric or [])) or "- Shows understanding of the cell"
     profile = _difficulty_profile(difficulty)
@@ -372,33 +358,16 @@ def grade_open_activity(
         'Return the JSON verdict only. Start with "{" and end with "}".'
     )
     raw = _generate_json(client, system_prompt, user_prompt)
-    if raw is None:
-        return _heuristic_grade(answer)
     try:
         passed = bool(raw.get("passed"))
         score = int(raw.get("score"))
     except (TypeError, ValueError):
-        return _heuristic_grade(answer)
+        raise ValueError("Grading failed: the model's verdict could not be parsed.")
     score = max(0, min(100, score))
     feedback = _clip_text(str(raw.get("feedback") or "").strip(), 280) or (
         "Nice explanation." if passed else "Try to mention the key points."
     )
     return {"passed": passed, "score": score, "feedback": feedback, "model": client.model}
-
-
-def _heuristic_grade(answer: str) -> dict[str, Any]:
-    words = len(answer.split())
-    passed = words >= 8
-    return {
-        "passed": passed,
-        "score": 70 if passed else 30,
-        "feedback": (
-            "Saved — graded offline since the model wasn't reachable."
-            if passed
-            else "Add a bit more detail to show your understanding."
-        ),
-        "model": "heuristic",
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +399,7 @@ def spontaneous_quiz_payload(
 
     Unlike :func:`generate_activity`, this isn't anchored to an analyzed cell —
     Flowy fires it on demand from the sidebar when the learner pastes a big
-    block of code. Always returns a normalised quiz (falls back to a template).
+    block of code.
     """
     snippet = _clip_text(code or "", 2000)
     if not snippet:

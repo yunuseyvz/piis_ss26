@@ -10,7 +10,11 @@ from jupyter_server.base.handlers import APIHandler
 from jupyter_server.utils import url_path_join
 from tornado import web
 
-from . import activities, gamification, progress_store, settings as settings_store
+from . import (
+    activities,
+    gamification,
+    profile_store,
+)
 from .ai_backend import (
     AssistantBackendError,
     chat_payload,
@@ -61,6 +65,34 @@ def _notebook_ns(body: dict[str, Any]) -> str:
     path = body.get("notebookPath") or body.get("notebookKey") or ""
     path = str(path).strip()
     return f"{path}::" if path else ""
+
+
+# ---------------------------------------------------------------------------
+# Helpers: profile-aware progress mutations
+# ---------------------------------------------------------------------------
+
+
+def _mutate_progress(
+    fn,
+) -> tuple[dict[str, Any], Any]:
+    """Run ``fn(progress) -> (new_progress, outcome)`` inside the profile lock.
+
+    Reads the progress section out of the profile, applies *fn*, writes the
+    updated progress back, and returns ``(new_progress, outcome)``.
+    """
+    def _inner(profile: dict[str, Any]) -> tuple[dict[str, Any], Any]:
+        progress = profile_store.get_progress(profile)
+        new_progress, outcome = fn(progress)
+        profile = profile_store.update_progress(profile, new_progress)
+        return profile, outcome
+
+    new_profile, outcome = profile_store.mutate(_inner)
+    return profile_store.get_progress(new_profile), outcome
+
+
+def _view_progress() -> dict[str, Any]:
+    """Public (derived) view of the current progress."""
+    return profile_store.public_view(profile_store.load())
 
 
 async def _run_llm(handler: APIHandler, fn, **kwargs):
@@ -178,10 +210,10 @@ class AnalyzeHandler(APIHandler):
                 (f"{key_ns}{key}", category, xp, label)
                 for key, category, xp, label in _auto_check_rules(result)
             ]
-            new_state, auto_applied = progress_store.mutate(
+            new_progress, auto_applied = _mutate_progress(
                 lambda s: gamification.apply_auto_checks(s, checks)
             )
-            payload["questState"] = gamification.public_view(new_state)
+            payload["questState"] = gamification.public_view(new_progress)
             payload["autoCompleted"] = auto_applied
             return payload
 
@@ -195,17 +227,22 @@ class AnalyzeHandler(APIHandler):
 
 
 class QuestInitHandler(APIHandler):
-    """Return the current global progression view."""
+    """Return the full user profile (settings + progress + sync metadata)."""
+
+    def _get_public_profile(self) -> dict[str, Any]:
+        profile = profile_store.load()
+        profile["progress"] = gamification.public_view(profile.get("progress") or {})
+        return profile
 
     @web.authenticated
     def post(self) -> None:
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"state": progress_store.view()}))
+        self.finish(json.dumps({"profile": self._get_public_profile()}))
 
     @web.authenticated
     def get(self) -> None:
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"state": progress_store.view()}))
+        self.finish(json.dumps({"profile": self._get_public_profile()}))
 
 
 class MissionClaimHandler(APIHandler):
@@ -222,7 +259,7 @@ class MissionClaimHandler(APIHandler):
         if not mission_id:
             raise web.HTTPError(400, reason="missionId required")
 
-        new_state, outcome = progress_store.mutate(
+        new_progress, outcome = _mutate_progress(
             lambda s: gamification.award_xp(
                 s,
                 category=category,
@@ -232,7 +269,7 @@ class MissionClaimHandler(APIHandler):
             )
         )
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"state": gamification.public_view(new_state), "outcome": outcome}))
+        self.finish(json.dumps({"state": gamification.public_view(new_progress), "outcome": outcome}))
 
 
 class ExplainCellHandler(APIHandler):
@@ -268,14 +305,14 @@ class ExplainCellHandler(APIHandler):
                 if isinstance(cell_index, int)
                 else "Read a cell"
             )
-            new_state, outcome = progress_store.mutate(
+            new_progress, outcome = _mutate_progress(
                 lambda s: gamification.award_explore(
                     s, cell_hash=cell_hash, amount=3, label=label, key_ns=key_ns
                 )
             )
-            state_view = gamification.public_view(new_state)
+            state_view = gamification.public_view(new_progress)
         else:
-            state_view = progress_store.view()
+            state_view = _view_progress()
         payload["outcome"] = outcome
         payload["state"] = state_view
         self.set_header("Content-Type", "application/json")
@@ -311,13 +348,13 @@ class ReflectAnswerHandler(APIHandler):
         if not text:
             raise web.HTTPError(400, reason="Reflection text cannot be empty.")
 
-        new_state, outcome = progress_store.mutate(
+        new_progress, outcome = _mutate_progress(
             lambda s: gamification.record_reflection(
                 s, cell_index=cell_index, text=text, key_ns=key_ns
             )
         )
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"state": gamification.public_view(new_state), "outcome": outcome}))
+        self.finish(json.dumps({"state": gamification.public_view(new_progress), "outcome": outcome}))
 
 
 class NextStepsHandler(APIHandler):
@@ -395,21 +432,24 @@ class ActivityGradeHandler(APIHandler):
         if not slot_id:
             raise web.HTTPError(400, reason="slotId required")
 
-        verdict = await _run_llm(
-            self,
-            activities.grade_open_activity,
-            prompt=prompt,
-            rubric=[str(r) for r in rubric],
-            answer=answer,
-            cell_source=cell_source,
-            start_path=_root_dir(self),
-            difficulty=_difficulty_from_body(body),
-        )
+        try:
+            verdict = await _run_llm(
+                self,
+                activities.grade_open_activity,
+                prompt=prompt,
+                rubric=[str(r) for r in rubric],
+                answer=answer,
+                cell_source=cell_source,
+                start_path=_root_dir(self),
+                difficulty=_difficulty_from_body(body),
+            )
+        except ValueError as exc:
+            raise web.HTTPError(400, reason=str(exc)) from exc
 
         outcome = {"granted": False, "xpAwarded": 0}
         if verdict.get("passed"):
             category = activities.category_for(kind)
-            new_state, outcome = progress_store.mutate(
+            new_progress, outcome = _mutate_progress(
                 lambda s: gamification.award_xp(
                     s,
                     category=category,
@@ -418,9 +458,9 @@ class ActivityGradeHandler(APIHandler):
                     label=f"{kind} · explained in own words",
                 )
             )
-            state_view = gamification.public_view(new_state)
+            state_view = gamification.public_view(new_progress)
         else:
-            state_view = progress_store.view()
+            state_view = _view_progress()
 
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps({"verdict": verdict, "outcome": outcome, "state": state_view}))
@@ -479,7 +519,7 @@ class FlowyQuizAnswerHandler(APIHandler):
             raise web.HTTPError(400, reason="challengeId required")
 
         amount = 6 if correct else 2
-        new_state, outcome = progress_store.mutate(
+        new_progress, outcome = _mutate_progress(
             lambda s: gamification.award_xp(
                 s,
                 category="understanding",
@@ -491,7 +531,7 @@ class FlowyQuizAnswerHandler(APIHandler):
         self.set_header("Content-Type", "application/json")
         self.finish(
             json.dumps(
-                {"state": gamification.public_view(new_state), "outcome": outcome, "correct": correct}
+                {"state": gamification.public_view(new_progress), "outcome": outcome, "correct": correct}
             )
         )
 
@@ -517,7 +557,7 @@ class QuizAnswerHandler(APIHandler):
             raise web.HTTPError(400, reason="slotId required")
 
         category = _QUIZ_CATEGORY_BY_REGION.get(region, "understanding")
-        new_state, outcome = progress_store.mutate(
+        new_progress, outcome = _mutate_progress(
             lambda s: gamification.record_quiz_attempt(
                 s, slot_id=slot_id, correct=correct, category=category, key_ns=key_ns
             )
@@ -525,7 +565,7 @@ class QuizAnswerHandler(APIHandler):
         self.set_header("Content-Type", "application/json")
         self.finish(
             json.dumps(
-                {"state": gamification.public_view(new_state), "outcome": outcome, "correct": correct}
+                {"state": gamification.public_view(new_progress), "outcome": outcome, "correct": correct}
             )
         )
 
@@ -533,7 +573,7 @@ class QuizAnswerHandler(APIHandler):
 class SettingsGetHandler(APIHandler):
     @web.authenticated
     def get(self) -> None:
-        payload = settings_store.public_settings(start_path=_root_dir(self))
+        payload = profile_store.public_settings(start_path=_root_dir(self))
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
 
@@ -542,15 +582,19 @@ class SettingsSaveHandler(APIHandler):
     @web.authenticated
     def post(self) -> None:
         body = self.get_json_body() or {}
+        # profile_store.update_settings expects camelCase keys natively —
+        # pass them through without translation.
         updates: dict[str, Any] = {}
         for key in ("model", "baseUrl", "apiKey"):
             if key in body and isinstance(body[key], str):
-                stored_key = {"model": "model", "baseUrl": "base_url", "apiKey": "api_key"}[key]
-                updates[stored_key] = body[key].strip()
+                updates[key] = body[key].strip()
         if "favoriteModels" in body and isinstance(body["favoriteModels"], list):
-            updates["favorite_models"] = list(body["favoriteModels"])
-        settings_store.save_global_settings(updates)
-        payload = settings_store.public_settings(start_path=_root_dir(self))
+            updates["favoriteModels"] = [str(m) for m in body["favoriteModels"] if m]
+        with profile_store._LOCK:
+            profile = profile_store.load()
+            profile = profile_store.update_settings(profile, updates)
+            profile_store.save(profile)
+        payload = profile_store.public_settings(start_path=_root_dir(self))
         self.set_header("Content-Type", "application/json")
         self.finish(json.dumps(payload))
 
@@ -561,11 +605,32 @@ class StateWipeHandler(APIHandler):
         body = self.get_json_body() or {}
         scope = str(body.get("scope") or "notebook")
         if scope == "global":
-            new_state = progress_store.reset()
+            with profile_store._LOCK:
+                profile = profile_store.load()
+                profile = profile_store.reset_progress(profile)
+                profile_store.save(profile)
+                new_progress = profile_store.get_progress(profile)
         else:
-            new_state = progress_store.forget_notebook(_notebook_ns(body).rstrip(":"))
+            notebook_key = _notebook_ns(body).rstrip(":")
+            with profile_store._LOCK:
+                profile = profile_store.load()
+                profile = profile_store.forget_notebook_in_profile(profile, notebook_key)
+                profile_store.save(profile)
+                new_progress = profile_store.get_progress(profile)
         self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"state": gamification.public_view(new_state)}))
+        self.finish(json.dumps({"state": gamification.public_view(new_progress)}))
+
+
+class ProfileResetHandler(APIHandler):
+    """Wipe the entire user profile (settings + progress) for a fresh start."""
+
+    @web.authenticated
+    def post(self) -> None:
+        with profile_store._LOCK:
+            empty = profile_store.save(profile_store._empty_profile())
+        empty["progress"] = gamification.public_view(empty.get("progress") or {})
+        self.set_header("Content-Type", "application/json")
+        self.finish(json.dumps({"profile": empty}))
 
 
 def setup_handlers(web_app: Any) -> None:
@@ -592,6 +657,7 @@ def setup_handlers(web_app: Any) -> None:
         (url_path_join(base_url, "piis-assistant", "settings"), SettingsGetHandler),
         (url_path_join(base_url, "piis-assistant", "settings", "save"), SettingsSaveHandler),
         (url_path_join(base_url, "piis-assistant", "state", "wipe"), StateWipeHandler),
+        (url_path_join(base_url, "piis-assistant", "profile", "reset"), ProfileResetHandler),
     ]
     web_app.add_handlers(r".*$", handlers)
 

@@ -16,6 +16,8 @@
  * Colours layer over JupyterLab's own theme variables so light/dark themes are
  * followed automatically; the accent palette supplies the personality.
  */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700;800&display=swap');
+
 :root {
   /* ---- Spacing scale --------------------------------------------------- */
   --fq-space-1: 4px;
@@ -26,122 +28,127 @@
   --fq-pad: 14px;
 
   /* ---- Radii (rounded, soft) ------------------------------------------ */
-  --fq-radius-xs: 6px;
-  --fq-radius-sm: 10px;
-  --fq-radius: 14px;
-  --fq-radius-lg: 20px;
+  --fq-radius-xs: 8px;
+  --fq-radius-sm: 12px;
+  --fq-radius: 16px;
+  --fq-radius-lg: 24px;
   --fq-radius-pill: 999px;
 
   /* ---- Signature palette ---------------------------------------------- */
-  --fq-accent: #7c5cff;        /* vivid violet — primary */
-  --fq-accent-2: #18cdd4;      /* teal */
-  --fq-accent-3: #ffb020;      /* amber */
-  --fq-accent-4: #2dd4a7;      /* emerald */
-  --fq-accent-5: #ff5d8f;      /* rose */
-  --fq-accent-soft: color-mix(in srgb, var(--fq-accent) 13%, transparent);
-  --fq-accent-softer: color-mix(in srgb, var(--fq-accent) 7%, transparent);
+  --fq-accent: #8b5cf6;        /* vivid violet — primary */
+  --fq-accent-2: #0ea5e9;      /* vibrant cyan */
+  --fq-accent-3: #64748b;      /* cool slate — neutral surface tint */
+  --fq-accent-4: #10b981;      /* emerald */
+  --fq-accent-5: #ec4899;      /* rose */
+  --fq-accent-soft: color-mix(in srgb, var(--fq-accent) 15%, transparent);
+  --fq-accent-softer: color-mix(in srgb, var(--fq-accent) 8%, transparent);
   --fq-accent-line: color-mix(in srgb, var(--fq-accent) 42%, transparent);
-  --fq-accent-glow: color-mix(in srgb, var(--fq-accent) 36%, transparent);
+  --fq-accent-glow: color-mix(in srgb, var(--fq-accent) 45%, transparent);
 
   /* The one signature gradient, reused for brand marks, fills, focus. */
-  --fq-grad-brand: linear-gradient(115deg, #7c5cff 0%, #b14dff 46%, #ff5d8f 100%);
+  --fq-grad-brand: linear-gradient(135deg, #8b5cf6 0%, #d946ef 50%, #ec4899 100%);
   --fq-grad-brand-soft: linear-gradient(
-    115deg,
-    color-mix(in srgb, #7c5cff 16%, transparent),
-    color-mix(in srgb, #ff5d8f 16%, transparent)
+    135deg,
+    color-mix(in srgb, #8b5cf6 20%, transparent),
+    color-mix(in srgb, #ec4899 20%, transparent)
   );
 
   /* ---- XP categories --------------------------------------------------- */
-  --fq-exploration: #18cdd4;
-  --fq-understanding: #7c5cff;
-  --fq-stabilization: #2dd4a7;
-  --fq-reflection: #ffb020;
+  --fq-exploration: #0ea5e9;
+  --fq-understanding: #8b5cf6;
+  --fq-stabilization: #10b981;
+  --fq-reflection: #f59e0b;
 
   /* ---- Status ---------------------------------------------------------- */
-  --fq-danger: #ff4d6d;
-  --fq-warn: #ffb020;
-  --fq-info: #4aa8ff;
-  --fq-success: #2dd4a7;
+  --fq-danger: #ef4444;
+  --fq-warn: #f59e0b;
+  --fq-info: #3b82f6;
+  --fq-success: #10b981;
 
   /* ---- Cell regions ---------------------------------------------------- */
   --fq-region-setup: #94a3b8;
-  --fq-region-load: #18cdd4;
-  --fq-region-clean: #2dd4a7;
-  --fq-region-explore: #ffb020;
-  --fq-region-visualize: #fb923c;
-  --fq-region-model: #7c5cff;
-  --fq-region-output: #ff5d8f;
+  --fq-region-load: #0ea5e9;
+  --fq-region-clean: #10b981;
+  --fq-region-explore: #f59e0b;
+  --fq-region-visualize: #f97316;
+  --fq-region-model: #8b5cf6;
+  --fq-region-output: #ec4899;
   --fq-region-narrative: #64748b;
   --fq-region-other: #94a3b8;
 
   /* ---- Borders (hairline) --------------------------------------------- */
-  --fq-border-color: color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 13%, transparent);
-  --fq-border-color-strong: color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 24%, transparent);
+  --fq-border-color: color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 10%, transparent);
+  --fq-border-color-strong: color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 20%, transparent);
   --fq-border: 1px solid var(--fq-border-color);
   --fq-border-strong: 1px solid var(--fq-border-color-strong);
-  /* Hairline highlight applied to the top edge of panels for a "lit" look. */
-  --fq-edge-highlight: color-mix(in srgb, #fff 50%, transparent);
+  --fq-edge-highlight: color-mix(in srgb, #ffffff 60%, transparent);
 
-  /* ---- Surfaces -------------------------------------------------------- */
-  --fq-surface: var(--jp-layout-color0, #fff);
-  --fq-surface-2: var(--jp-layout-color1, #f7f8fa);
-  --fq-surface-3: color-mix(in srgb, var(--jp-layout-color2, #eef0f3) 72%, transparent);
-  /* Panel fill: a barely-there vertical sheen over the base surface. */
+  /* ---- Surfaces & Glassmorphism ---------------------------------------- */
+  --fq-surface: color-mix(in srgb, var(--jp-layout-color0, #ffffff) 98%, var(--fq-accent-3));
+  --fq-surface-2: color-mix(in srgb, var(--jp-layout-color0, #ffffff) 96%, var(--fq-accent-3));
+  --fq-surface-3: color-mix(in srgb, var(--jp-layout-color0, #ffffff) 93%, var(--fq-accent-3));
+  --fq-blur: blur(16px);
   --fq-panel: linear-gradient(
       180deg,
-      color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 2%, transparent),
-      transparent 42%
+      color-mix(in srgb, var(--jp-ui-font-color1, #1f2933) 3%, transparent),
+      transparent 40%
     ),
     var(--fq-surface);
 
   /* ---- Elevation (soft, diffuse, lightly tinted) ---------------------- */
-  --fq-shadow: 0 1px 2px rgba(20, 18, 40, 0.07);
-  --fq-shadow-soft: 0 6px 18px rgba(20, 18, 40, 0.1);
-  --fq-shadow-pop: 0 16px 40px rgba(20, 18, 40, 0.2);
-  --fq-shadow-accent: 0 8px 22px var(--fq-accent-glow);
+  --fq-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --fq-shadow-soft: 0 8px 24px rgba(139, 92, 246, 0.12);
+  --fq-shadow-pop: 0 20px 48px rgba(139, 92, 246, 0.18);
+  --fq-shadow-accent: 0 12px 28px var(--fq-accent-glow);
 
   /* ---- Motion ---------------------------------------------------------- */
-  --fq-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fq-ease: cubic-bezier(0.25, 1, 0.5, 1);
   --fq-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --fq-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-  --fq-fast: 0.14s var(--fq-ease);
-  --fq-transition: 0.22s var(--fq-ease);
-  --fq-slow: 0.42s var(--fq-ease-out);
+  --fq-fast: 0.15s var(--fq-ease);
+  --fq-transition: 0.25s var(--fq-ease);
+  --fq-slow: 0.5s var(--fq-ease-out);
 
   /* Alignment helpers for blocks injected into JupyterLab's notebook DOM. */
-  --fq-cell-gap: 12px;
+  --fq-cell-gap: 14px;
   --fq-cell-indent: 48px;
 }
 
 /* Dark theme: stronger edges, deeper shadows, brighter accent glow. */
 body[data-jp-theme-light='false'] {
-  --fq-border-color: color-mix(in srgb, #fff 14%, transparent);
-  --fq-border-color-strong: color-mix(in srgb, #fff 26%, transparent);
-  --fq-edge-highlight: color-mix(in srgb, #fff 14%, transparent);
+  --fq-border-color: color-mix(in srgb, #ffffff 12%, transparent);
+  --fq-border-color-strong: color-mix(in srgb, #ffffff 22%, transparent);
+  --fq-edge-highlight: color-mix(in srgb, #ffffff 20%, transparent);
+  --fq-surface: color-mix(in srgb, var(--jp-layout-color0, #0f172a) 80%, transparent);
+  --fq-surface-2: color-mix(in srgb, var(--jp-layout-color1, #1e293b) 70%, transparent);
   --fq-panel: linear-gradient(
       180deg,
-      color-mix(in srgb, #fff 4%, transparent),
-      transparent 42%
+      color-mix(in srgb, #ffffff 6%, transparent),
+      transparent 40%
     ),
     var(--fq-surface);
-  --fq-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --fq-shadow-soft: 0 6px 20px rgba(0, 0, 0, 0.5);
-  --fq-shadow-pop: 0 18px 44px rgba(0, 0, 0, 0.62);
-  --fq-shadow-accent: 0 10px 26px var(--fq-accent-glow);
+  --fq-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  --fq-shadow-soft: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --fq-shadow-pop: 0 20px 50px rgba(0, 0, 0, 0.75);
+  --fq-shadow-accent: 0 12px 30px var(--fq-accent-glow);
 }
 
-.flowquest {
-  color: var(--jp-ui-font-color1, #1f2933);
-  background: var(--jp-layout-color1, #fff);
-  font-family: var(--jp-ui-font-family, system-ui, sans-serif);
-  font-size: var(--jp-ui-font-size1, 13px);
+.flowquest,
+.flowquest-banner,
+.flowquest-cellRoot,
+.flowquest-cellPanel,
+.flowquest-questCell {
+  color: var(--jp-ui-font-color1, #334155);
+  background: var(--jp-layout-color1, #ffffff);
+  font-family: 'Outfit', var(--jp-ui-font-family, system-ui, sans-serif);
+  font-size: var(--jp-ui-font-size1, 14px);
 }
 
 /* Tabular HUD numerals — used for XP, levels, counts. */
 .flowquest-num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
 }
 
 /* ---- Inline icon primitive ------------------------------------------- */

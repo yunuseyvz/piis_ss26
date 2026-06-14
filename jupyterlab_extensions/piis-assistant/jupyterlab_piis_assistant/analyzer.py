@@ -16,7 +16,7 @@ import builtins
 import hashlib
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Any, Iterable
+from typing import Any
 
 from .activities import ACTIVITY_SPECS, KIND_QUIZ, activity_spec
 
@@ -221,6 +221,7 @@ class CellAnalysis:
     summary: str = ""
     source_hash: str = ""
     source_preview: str = ""
+    import_aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -458,8 +459,8 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
             summary=_cell_summary(source),
             source_hash=_hash_source(source) if source.strip() else "",
             source_preview=_clip(source, 320),
+            import_aliases=import_aliases,
         )
-        analysis._import_aliases = import_aliases  # type: ignore[attr-defined]
         analyses.append(analysis)
 
         for name in defines:
@@ -573,7 +574,7 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
     for analysis in analyses:
         if not analysis.defines:
             continue
-        aliases = set(getattr(analysis, "_import_aliases", []))  # type: ignore[attr-defined]
+        aliases = set(analysis.import_aliases)
         unused = [
             name
             for name in analysis.defines

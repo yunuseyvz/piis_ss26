@@ -1,53 +1,42 @@
 /**
- * Between-cell activity injector.
+ * Between-cell activity injector (React version).
  *
- * A FlowQuest "quest cell" is a DOM element that looks and feels like a notebook
- * cell but is not part of the nbformat cell list. Each one is anchored to a real
- * cell by its stable nbformat cell id, so it survives cell insertions,
- * deletions, and moves.
- *
- * This class owns the generic plumbing — anchoring, attaching, persistence,
- * generate/answer/grade network calls — and delegates the actual rendering and
- * interaction to a :class:`CellModule` chosen by the slot's ``kind`` (see
- * ``cellModules/``). The backend analyzer decides which kind each injection
- * point offers (quiz, predict, teachback, …); generated content and progress
- * are persisted in ``notebook.metadata.flowquest.quizzes`` so they travel with
- * the .ipynb.
+ * Anchors virtual activity cells to real notebook cells by stable cell id and
+ * renders each slot with the appropriate React activity component.
  */
 
+import { createRoot, type Root } from 'react-dom/client';
 import type { NotebookPanel } from '@jupyterlab/notebook';
 
-import { apiRequest } from './api';
-import { moduleFor } from './cellModules';
-import type { CellModuleActions } from './cellModules';
-import { activityIcon, icon as renderUiIcon } from './icons';
+import { ChoiceActivity } from './components/ChoiceActivity';
+import { OpenActivity } from './components/OpenActivity';
+import { activityIcon, icon } from './icons';
 import { QuestMetadataStore } from './questStore';
+import { FlowQuestStore } from './state';
 import { toFriendlyError } from './uiFeedback';
 import type {
-  ActivityGradeResponse,
+  ActivityKind,
   AnalysisResponse,
   CellAnalysis,
   InjectionPoint,
-  OpenContent,
-  QuestState,
-  QuizContent,
   QuizRecord
 } from './types';
 
 const HOST_CLASS = 'flowquest-questCell';
 
 interface QuestCellRendererCallbacks {
-  getAnalysis: () => AnalysisResponse | null;
-  getState: () => QuestState;
-  applyState: (state: QuestState) => void;
+  store: FlowQuestStore;
+  notebookPath: string;
   onXpGained: (amount: number, category: string, source: string) => void;
   getPanel: () => NotebookPanel;
   getStore: () => QuestMetadataStore;
+  isConfigured: () => boolean;
 }
 
 interface SlotEntry {
   slot: InjectionPoint;
   host: HTMLElement;
+  root: Root;
   loading: boolean;
   record: QuizRecord | null;
   error: { kind: string; message: string } | null;
@@ -55,17 +44,42 @@ interface SlotEntry {
 }
 
 export class QuestCellRenderer {
+  private entries = new Map<string, SlotEntry>();
+  private unsubscribe: (() => void) | null = null;
+  private lastAnalysis: AnalysisResponse | null = null;
+
   constructor(private callbacks: QuestCellRendererCallbacks) {
-    this.actions = {
-      generate: slotId => void this.generate(slotId),
-      answerChoice: (slotId, idx) => void this.answerChoice(slotId, idx),
-      submitOpen: (slotId, answer) => void this.submitOpen(slotId, answer),
-      setHidden: (slotId, hidden) => this.setHidden(slotId, hidden),
-      patchRecord: (slotId, patch) => this.patchRecord(slotId, patch)
-    };
+    // Subscribe to the notebook's slice so injection points appear as soon as
+    // the analysis completes (and disappear when the analysis is cleared).
+    this.unsubscribe = this.callbacks.store.subscribeNotebook(
+      this.callbacks.notebookPath,
+      () => {
+        const slice = this.callbacks.store.getNotebookSlice(this.callbacks.notebookPath);
+        if (slice.analysis !== this.lastAnalysis) {
+          this.lastAnalysis = slice.analysis;
+          this.refresh(slice.analysis);
+        }
+      }
+    );
+    // If the analysis is already in the store (e.g. from a prior scan), pick
+    // it up immediately instead of waiting for the next mutation.
+    const initial = this.callbacks.store.getNotebookSlice(this.callbacks.notebookPath);
+    if (initial.analysis) {
+      this.lastAnalysis = initial.analysis;
+      this.refresh(initial.analysis);
+    }
   }
 
-  /** Re-render all virtual cells to reflect the latest analysis. */
+  dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+    this.detachAll();
+  }
+
+  private currentAnalysis(): AnalysisResponse | null {
+    return this.lastAnalysis;
+  }
+
   refresh(analysis: AnalysisResponse | null): void {
     if (!analysis) {
       this.detachAll();
@@ -79,6 +93,7 @@ export class QuestCellRenderer {
     Array.from(this.entries.keys()).forEach(slotId => {
       if (!desired.has(slotId)) {
         const entry = this.entries.get(slotId);
+        entry?.root.unmount();
         entry?.host.remove();
         this.entries.delete(slotId);
       }
@@ -91,12 +106,7 @@ export class QuestCellRenderer {
         const host = document.createElement('div');
         host.className = HOST_CLASS;
         host.dataset.slotId = slotId;
-        // The host lives inside the notebook DOM, where JupyterLab intercepts
-        // mouse + keyboard events to drive cell focus / command-mode shortcuts.
-        // That preventDefault on mousedown stops our inputs from ever gaining
-        // focus (so you can't type). Contain those events within the activity
-        // cell so its form controls behave like normal HTML. Attached once on
-        // the persistent host, so it survives re-renders.
+
         const contain = (event: Event) => event.stopPropagation();
         [
           'mousedown',
@@ -110,10 +120,12 @@ export class QuestCellRenderer {
           'focusin',
           'focusout'
         ].forEach(type => host.addEventListener(type, contain));
+
         const stored = storedQuizzes[slotId] ?? null;
         entry = {
           slot,
           host,
+          root: createRoot(host),
           loading: false,
           record: stored,
           error: null,
@@ -142,7 +154,10 @@ export class QuestCellRenderer {
   }
 
   detachAll(): void {
-    this.entries.forEach(entry => entry.host.remove());
+    this.entries.forEach(entry => {
+      entry.root.unmount();
+      entry.host.remove();
+    });
     this.entries.clear();
   }
 
@@ -150,9 +165,8 @@ export class QuestCellRenderer {
     const panel = this.callbacks.getPanel();
     const widgets = panel.content.widgets;
     const model = panel.content.model;
-    if (!model) {
-      return null;
-    }
+    if (!model) return null;
+
     for (let i = 0; i < model.cells.length; i += 1) {
       const cellModel = model.cells.get(i);
       const id = (cellModel.sharedModel as unknown as { id?: string }).id;
@@ -169,9 +183,7 @@ export class QuestCellRenderer {
 
   private attachAfter(host: HTMLElement, anchor: HTMLElement): void {
     const parent = anchor.parentElement;
-    if (!parent) {
-      return;
-    }
+    if (!parent) return;
     const nextSibling = anchor.nextElementSibling;
     if (host.parentElement !== parent || host.previousElementSibling !== anchor) {
       if (nextSibling) {
@@ -182,33 +194,33 @@ export class QuestCellRenderer {
     }
   }
 
-  /** Generate (or regenerate) the activity content for a slot. */
   private async generate(slotId: string): Promise<void> {
     const entry = this.entries.get(slotId);
-    if (!entry) {
+    if (!entry) return;
+
+    if (!this.callbacks.isConfigured()) {
+      entry.error = {
+        kind: 'auth',
+        message: 'No model configured. Open Settings to set up an endpoint.'
+      };
+      entry.loading = false;
+      this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
       return;
     }
-    // Regenerating clears the prior record; un-hide either way.
+
     entry.record = null;
     entry.hidden = false;
     entry.loading = true;
     entry.error = null;
-    this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
+    this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
 
     try {
-      const analysis = this.callbacks.getAnalysis();
-      const generated = await apiRequest<QuizContent & OpenContent>(
-        'piis-assistant/activity/generate',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            slot: entry.slot,
-            kind: entry.slot.kind,
-            cells: analysis?.cells ?? [],
-            difficulty: this.callbacks.getState().difficulty
-          })
-        }
-      );
+      const analysis = this.currentAnalysis();
+      const generated = await this.callbacks.store.generateActivity({
+        slot: entry.slot,
+        kind: entry.slot.kind,
+        cells: analysis?.cells ?? []
+      });
       const isOpen = entry.slot.response === 'open';
       const record: QuizRecord = {
         slotId,
@@ -218,15 +230,15 @@ export class QuestCellRenderer {
         quiz: isOpen
           ? { question: '', options: [], correctIndex: 0, explanation: '' }
           : {
-              question: generated.question,
-              options: generated.options,
-              correctIndex: generated.correctIndex,
-              explanation: generated.explanation,
+              question: generated.question ?? 'What does this cell do?',
+              options: generated.options ?? [],
+              correctIndex: generated.correctIndex ?? 0,
+              explanation: generated.explanation ?? '',
               model: generated.model
             },
         open: isOpen
           ? {
-              prompt: generated.prompt,
+              prompt: generated.prompt ?? 'Explain what this cell does.',
               rubric: generated.rubric ?? [],
               hint: generated.hint ?? '',
               model: generated.model
@@ -246,20 +258,15 @@ export class QuestCellRenderer {
       entry.error = toFriendlyError(error);
     } finally {
       entry.loading = false;
-      this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
+      this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
     }
   }
 
-  /** Submit a multiple-choice answer (choice activities). */
   private async answerChoice(slotId: string, selectedIndex: number): Promise<void> {
     const entry = this.entries.get(slotId);
-    if (!entry || !entry.record) {
-      return;
-    }
+    if (!entry || !entry.record) return;
     const record = entry.record;
-    if (record.answeredCorrectly) {
-      return;
-    }
+    if (record.answeredCorrectly) return;
 
     const correct = selectedIndex === record.quiz.correctIndex;
     record.attempts += 1;
@@ -267,19 +274,11 @@ export class QuestCellRenderer {
     record.answeredCorrectly = correct;
 
     try {
-      const response = await apiRequest<{
-        state: QuestState;
-        outcome: { granted: boolean; xpAwarded?: number; category?: string };
-        correct: boolean;
-      }>('piis-assistant/activity/answer', {
-        method: 'POST',
-        body: JSON.stringify({
-          state: this.callbacks.getState(),
-          notebookPath: this.callbacks.getState().notebookPath,
-          slotId,
-          region: entry.slot.region,
-          correct
-        })
+      const response = await this.callbacks.store.answerActivity({
+        notebookPath: this.callbacks.notebookPath,
+        slotId,
+        region: entry.slot.region,
+        correct
       });
       if (response.outcome.granted) {
         const awarded = response.outcome.xpAwarded ?? 0;
@@ -290,51 +289,38 @@ export class QuestCellRenderer {
           correct ? 'Quiz correct' : 'Quiz attempt'
         );
       }
-      this.callbacks.applyState(response.state);
     } catch (error) {
       entry.error = toFriendlyError(error);
     }
 
     this.callbacks.getStore().writeQuiz(record);
-    this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
+    this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
   }
 
-  /** Submit a free-text answer for LLM grading (open activities). */
   private async submitOpen(slotId: string, answer: string): Promise<void> {
     const entry = this.entries.get(slotId);
-    if (!entry || !entry.record || !entry.record.open) {
-      return;
-    }
+    if (!entry || !entry.record || !entry.record.open) return;
     const record = entry.record;
-    if (record.openVerdict?.passed) {
-      return;
-    }
-    const open = record.open;
-    if (!open) {
-      return;
-    }
+    if (record.openVerdict?.passed) return;
+    const open = record.open!;
+
     record.openAnswer = answer;
     record.attempts += 1;
     entry.loading = true;
-    this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
+    this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
 
-    const anchorCell = this.callbacks
-      .getAnalysis()
-      ?.cells.find(c => c.cellId === entry.slot.anchorCellId);
+    const anchorCell = this.currentAnalysis()
+      ?.cells.find((c: CellAnalysis) => c.cellId === entry.slot.anchorCellId);
 
     try {
-      const response = await apiRequest<ActivityGradeResponse>('piis-assistant/activity/grade', {
-        method: 'POST',
-        body: JSON.stringify({
-          slotId,
-          kind: entry.slot.kind,
-          prompt: open.prompt,
-          rubric: open.rubric,
-          answer,
-          cellSource: anchorCell?.sourcePreview ?? '',
-          notebookPath: this.callbacks.getState().notebookPath,
-          difficulty: this.callbacks.getState().difficulty
-        })
+      const response = await this.callbacks.store.gradeActivity({
+        slotId,
+        kind: entry.slot.kind,
+        prompt: open.prompt,
+        rubric: open.rubric,
+        answer,
+        cellSource: anchorCell?.sourcePreview ?? '',
+        notebookPath: this.callbacks.store.getGlobalState().notebookPath
       });
       record.openVerdict = response.verdict;
       record.answeredCorrectly = Boolean(response.verdict.passed);
@@ -343,33 +329,25 @@ export class QuestCellRenderer {
         record.awardedXp += awarded;
         this.callbacks.onXpGained(awarded, response.outcome.category ?? 'reflection', 'Teach-back');
       }
-      this.callbacks.applyState(response.state);
     } catch (error) {
       entry.error = toFriendlyError(error);
     } finally {
       entry.loading = false;
       this.callbacks.getStore().writeQuiz(record);
-      this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
+      this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
     }
   }
 
-  /** Update a record in place (e.g. open-answer draft) and persist it. */
   private patchRecord(slotId: string, patch: Partial<QuizRecord>): void {
     const entry = this.entries.get(slotId);
-    if (!entry || !entry.record) {
-      return;
-    }
+    if (!entry || !entry.record) return;
     entry.record = { ...entry.record, ...patch };
     this.callbacks.getStore().writeQuiz(entry.record);
-    // No re-render: this is called from an input handler; re-rendering would
-    // drop focus. The DOM already reflects the user's typing.
   }
 
   private setHidden(slotId: string, hidden: boolean): void {
     const entry = this.entries.get(slotId);
-    if (!entry) {
-      return;
-    }
+    if (!entry) return;
     entry.hidden = hidden;
     const stub: QuizRecord =
       entry.record ?? {
@@ -387,7 +365,7 @@ export class QuestCellRenderer {
     stub.hidden = hidden;
     entry.record = stub;
     this.callbacks.getStore().writeQuiz(stub);
-    this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? []);
+    this.renderSlot(entry, this.currentAnalysis()?.cells ?? []);
   }
 
   private renderSlot(entry: SlotEntry, cells: CellAnalysis[]): void {
@@ -395,19 +373,37 @@ export class QuestCellRenderer {
       this.renderStub(entry, cells);
       return;
     }
-    const module = moduleFor(entry.slot.kind);
-    module.render(
-      {
-        host: entry.host,
-        slot: entry.slot,
-        record: entry.record,
-        cells,
-        loading: entry.loading,
-        error: entry.error,
-        rerender: () => this.renderSlot(entry, this.callbacks.getAnalysis()?.cells ?? [])
-      },
-      this.actions
-    );
+
+    const kind = entry.slot.kind;
+    if (kind === 'teachback') {
+      entry.root.render(
+        <OpenActivity
+          slot={entry.slot}
+          record={entry.record}
+          cells={cells}
+          loading={entry.loading}
+          error={entry.error}
+          onGenerate={() => void this.generate(entry.slot.slotId)}
+          onSubmit={answer => void this.submitOpen(entry.slot.slotId, answer)}
+          onDismiss={() => this.setHidden(entry.slot.slotId, true)}
+          onDraftChange={value => this.patchRecord(entry.slot.slotId, { openAnswer: value })}
+        />
+      );
+    } else {
+      entry.root.render(
+        <ChoiceActivity
+          kind={kind as ActivityKind}
+          slot={entry.slot}
+          record={entry.record}
+          cells={cells}
+          loading={entry.loading}
+          error={entry.error}
+          onGenerate={() => void this.generate(entry.slot.slotId)}
+          onAnswer={idx => void this.answerChoice(entry.slot.slotId, idx)}
+          onDismiss={() => this.setHidden(entry.slot.slotId, true)}
+        />
+      );
+    }
   }
 
   private renderStub(entry: SlotEntry, cells: CellAnalysis[]): void {
@@ -416,35 +412,36 @@ export class QuestCellRenderer {
     const anchorCell = cells.find(c => c.cellId === slot.anchorCellId);
     const anchorLabel = anchorCell ? `Cell ${anchorCell.index + 1}` : 'anchor cell';
     const solved = Boolean(record?.answeredCorrectly || record?.openVerdict?.passed);
-    const labelGlyph = solved ? renderUiIcon('success') : activityIcon(slot.kind);
     const labelText = solved
       ? `${slot.kindLabel || 'Activity'} solved · hidden`
       : `${slot.kindLabel || 'Activity'} hidden`;
-    entry.host.innerHTML = `
-      <div class="flowquest-questCellStub">
-        <span class="flowquest-questCellStubIcon">${labelGlyph}</span>
-        <div class="flowquest-questCellStubBody">
-          <div class="flowquest-questCellStubTitle">${escapeStub(labelText)}</div>
-          <div class="flowquest-questCellStubMeta">${escapeStub(
-            `${slot.region} checkpoint on ${anchorLabel}`
-          )}</div>
+
+    const iconHtml = solved ? icon('success') : activityIcon(slot.kind);
+
+    entry.root.render(
+      <div className="flowquest-questCellStub">
+        <span 
+          className="flowquest-questCellStubIcon" 
+          dangerouslySetInnerHTML={{ __html: iconHtml }} 
+        />
+        <div className="flowquest-questCellStubBody">
+          <div className="flowquest-questCellStubTitle">{labelText}</div>
+          <div className="flowquest-questCellStubMeta">
+            {slot.region} checkpoint on {anchorLabel}
+          </div>
         </div>
-        <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="reveal">${renderUiIcon('reveal')} Show</button>
+        <button 
+          type="button" 
+          className="flowquest-btn flowquest-btn-ghost"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            this.setHidden(slot.slotId, false);
+          }}
+        >
+          Show
+        </button>
       </div>
-    `;
-    const reveal = entry.host.querySelector<HTMLButtonElement>('[data-action="reveal"]');
-    if (reveal) {
-      reveal.onclick = () => this.setHidden(slot.slotId, false);
-    }
+    );
   }
-
-  private entries = new Map<string, SlotEntry>();
-  private actions: CellModuleActions;
-}
-
-function escapeStub(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }

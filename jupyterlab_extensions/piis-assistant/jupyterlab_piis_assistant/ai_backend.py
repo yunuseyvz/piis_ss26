@@ -8,7 +8,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from .settings import resolve_endpoint
+from .profile_store import resolve_endpoint
 
 
 _DIFFICULTY_PROFILES: dict[str, dict[str, Any]] = {
@@ -256,13 +256,34 @@ def status_payload(start_path: str | Path | None = None) -> dict[str, str | bool
             "message": "Missing model / base URL / API key. Open FlowQuest settings to configure them.",
         }
 
+    try:
+        client.chat([{"role": "user", "content": "ping"}], max_tokens=2, max_attempts=1)
+    except AssistantBackendError as exc:
+        return {
+            "configured": False,
+            "model": client.model,
+            "baseUrl": client.base_url,
+            "envFile": str(env_file) if env_file is not None else "not found",
+            "settingsFile": settings_file,
+            "message": f"Endpoint reachable but failed: {exc.user_message}",
+        }
+    except Exception as exc:
+        return {
+            "configured": False,
+            "model": client.model,
+            "baseUrl": client.base_url,
+            "envFile": str(env_file) if env_file is not None else "not found",
+            "settingsFile": settings_file,
+            "message": f"Could not verify endpoint: {str(exc)}",
+        }
+
     return {
         "configured": True,
         "model": client.model,
         "baseUrl": client.base_url,
         "envFile": str(env_file) if env_file is not None else "not found",
         "settingsFile": settings_file,
-        "message": "Assistant endpoint is configured.",
+        "message": "Assistant endpoint is configured and reachable.",
     }
 
 
@@ -556,72 +577,4 @@ def _normalize_quiz(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_FALLBACK_QUIZZES: dict[str, dict[str, Any]] = {
-    "load": {
-        "question": "What is the main purpose of this cell?",
-        "options": [
-            "It ingests data from an external source into the notebook.",
-            "It trains a machine-learning model on preprocessed data.",
-            "It generates a plot summarizing model performance.",
-            "It refactors helper functions into a module.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Load cells ingest data so later cells can work with it.",
-    },
-    "clean": {
-        "question": "Why does this cell matter in the workflow?",
-        "options": [
-            "It reshapes or filters data so later analysis is correct.",
-            "It evaluates a trained model on a held-out set.",
-            "It prints a summary of the notebook configuration.",
-            "It imports project dependencies.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Clean cells reshape or filter data so later analysis is correct.",
-    },
-    "explore": {
-        "question": "What does this cell mainly help you understand?",
-        "options": [
-            "The structure or distribution of the data.",
-            "How to deploy a model to production.",
-            "Which third-party libraries to install.",
-            "The schema of the output dashboard.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Explore cells reveal structure, summaries, or distributions of the data.",
-    },
-    "visualize": {
-        "question": "What is the primary goal of this visualization cell?",
-        "options": [
-            "To make a pattern or comparison in the data visible.",
-            "To serialize a dataframe to disk.",
-            "To benchmark the Python runtime.",
-            "To install plotting libraries.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Visualization cells make patterns or comparisons in the data visible.",
-    },
-    "model": {
-        "question": "What does this modeling cell commit to?",
-        "options": [
-            "A specific algorithm and the features it will learn from.",
-            "The exact colors of the downstream plots.",
-            "The directory where output files are written.",
-            "The list of packages to pin in requirements.txt.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Modeling cells commit to an algorithm and a feature set for learning.",
-    },
-}
-
-
-def _fallback_quiz(region: str) -> dict[str, Any]:
-    template = _FALLBACK_QUIZZES.get(region) or _FALLBACK_QUIZZES["explore"]
-    # Return a shallow copy so callers can mutate safely.
-    return {
-        "question": template["question"],
-        "options": list(template["options"]),
-        "correctIndex": int(template["correctIndex"]),
-        "explanation": template["explanation"],
-    }
 

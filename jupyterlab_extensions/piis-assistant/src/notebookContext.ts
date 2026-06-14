@@ -3,8 +3,6 @@ import { NotebookPanel } from '@jupyterlab/notebook';
 import { clipText } from './api';
 import type { NotebookContext } from './types';
 
-export { EMPTY_QUEST_STATE } from './questState';
-
 const NOTEBOOK_CONTEXT_LIMIT = 12000;
 
 export const EMPTY_NOTEBOOK: NotebookContext = {

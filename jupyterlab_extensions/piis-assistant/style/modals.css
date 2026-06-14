@@ -323,8 +323,59 @@
 
 .flowquest-handbookContent {
   overflow: auto;
-  padding: 18px 22px;
+  padding: 24px 32px;
   line-height: 1.6;
+  font-size: 13px;
+}
+
+.flowquest-handbookContent h1 {
+  font-family: 'Outfit', var(--jp-ui-font-family, sans-serif);
+  font-size: 24px;
+  font-weight: 800;
+  margin-top: 0;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--fq-accent), var(--fq-accent-5));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.flowquest-handbookContent h2 {
+  font-family: 'Outfit', var(--jp-ui-font-family, sans-serif);
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 24px;
+  margin-bottom: 12px;
+  color: var(--jp-ui-font-color0);
+  border-bottom: 1px solid var(--fq-border-color);
+  padding-bottom: 6px;
+}
+
+.flowquest-handbookContent ul {
+  padding-left: 20px;
+  margin-bottom: 16px;
+}
+
+.flowquest-handbookContent li {
+  margin-bottom: 6px;
+}
+
+.flowquest-handbookContent p {
+  margin-bottom: 16px;
+}
+
+.flowquest-handbookContent strong {
+  font-weight: 700;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-handbookContent code {
+  background: var(--fq-surface-2);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 12px;
+  color: var(--fq-accent-6);
 }
 
 @media (max-width: 640px) {

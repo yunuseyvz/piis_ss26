@@ -179,6 +179,17 @@
   box-shadow: none;
 }
 
+.flowquest-btn-clear {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.flowquest-btn-clear:hover:not(:disabled) {
+  background: var(--fq-surface-2);
+  color: var(--fq-accent);
+}
+
 .flowquest-btn-ghost:hover:not(:disabled) {
   background: var(--fq-accent-soft);
   border-color: color-mix(in srgb, var(--fq-accent) 45%, transparent);
@@ -323,6 +334,68 @@
     transform: translate(-50%, 0);
     opacity: 1;
   }
+}
+
+.flowquest-autoCheckStack {
+  position: absolute;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  z-index: 20;
+  pointer-events: none;
+  width: calc(100% - 32px);
+  max-width: 300px;
+}
+
+.flowquest-autoCheckToast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--jp-layout-color1);
+  border: 1px solid var(--fq-accent-3);
+  box-shadow: var(--fq-shadow-pop);
+  border-radius: var(--fq-radius-sm);
+  padding: 10px 12px;
+  color: var(--jp-ui-font-color0);
+  pointer-events: auto;
+  opacity: 0;
+}
+
+.flowquest-autoCheckToast.is-animating {
+  animation: flowquest-autoCheckSlide 5.5s cubic-bezier(0.18, 0.9, 0.32, 1.2) forwards;
+}
+
+.flowquest-autoCheckIcon {
+  color: var(--fq-accent-3);
+  flex-shrink: 0;
+}
+
+.flowquest-autoCheckContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.flowquest-autoCheckLabel {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.flowquest-autoCheckXp {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--fq-accent);
+}
+
+@keyframes flowquest-autoCheckSlide {
+  0% { transform: translateY(20px); opacity: 0; }
+  5% { transform: translateY(0); opacity: 1; }
+  90% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-10px); opacity: 0; }
 }
 
 .flowquest-flash {

@@ -4,29 +4,30 @@ This page is the "mental model" of the project. Read it once and the rest of the
 
 ## One-paragraph version
 
-FlowQuest is a JupyterLab extension. The frontend (TypeScript) draws several surfaces — a sidebar, an in-notebook banner, per-cell chips/panels, and a floating avatar (Flowy) — and inserts virtual activity cells between real cells. Every UI action that earns progress calls the Python server extension; the server applies a pure mutation to the user's **global XP/level state** and returns the new state, which the frontend mirrors across every open notebook. Progression (XP, levels, the award log) is **global and server-owned**, stored at `~/.flowquest/progress.json`. Global settings (model, base URL, API key) live in `~/.flowquest/settings.json`. The only per-notebook data is the difficulty preference and generated quiz content, which travel inside the notebook's `metadata.flowquest`.
+FlowQuest is a JupyterLab extension. The frontend (**React 18 + TypeScript**) draws several surfaces — a sidebar, an in-notebook banner, per-cell chips/panels, and a floating avatar (Flowy) — and inserts virtual activity cells between real cells. UI components subscribe to a central `FlowQuestStore` via `useSyncExternalStore` hooks; each surface is a Lumino widget wrapping a React sub-tree in a `<StoreProvider>`. Every UI action that earns progress calls the Python server extension; the server applies a pure mutation to the user's **global XP/level state** and returns the new state, which the store mirrors across every open notebook. Progression (XP, levels, the award log) and settings (model, base URL, API key) are **global and server-owned**, stored in a single file at `~/.flowquest/profile.json` managed by `profile_store.py`. The only per-notebook data is the difficulty preference, generated quiz content, and chat transcript, which travel inside the notebook's `metadata.flowquest`.
 
 ## Picture
 
 ```
 ┌───────────────────────────────────────────────────────────┐
 │                     JupyterLab frontend                   │
+│               (React 18 + useSyncExternalStore)           │
 │                                                           │
 │  ┌──────────────┐  ┌──────────────────┐  ┌──────────┐     │
-│  │   Sidebar    │  │  In-notebook     │  │ Per-cell │     │
-│  │  Quest /     │  │  banner (HUD:    │  │ chip +   │     │
-│  │  Flowy /     │  │  level, XP,      │  │ panel    │     │
-│  │  Chat        │  │  missions, diff) │  │          │     │
+│  │  Sidebar     │  │  In-notebook     │  │ Per-cell │     │
+│  │  SidebarApp  │  │  banner          │  │ CellPanel│     │
+│  │  .tsx        │  │  NotebookBanner  │  │ .tsx     │     │
 │  └──────┬───────┘  └────────┬─────────┘  └────┬─────┘     │
 │         │                   │                 │           │
 │         │   Virtual activity cells ───────────┤           │
-│         │   Flowy avatar (paste-aware) ───────┤           │
+│         │   AvatarAssistant.tsx ──────────────┤           │
 │         │                   │                 │           │
 │         └─────────┬─────────┴─────────────────┘           │
 │                   │                                       │
 │                   ▼                                       │
-│        in-memory global state mirror (index.ts)           │
-│        + QuestMetadataStore (difficulty + quizzes only)   │
+│     FlowQuestStore (singleton, state/store.ts)            │
+│     + StoreProvider (React context, state/StoreContext)   │
+│     + QuestMetadataStore (difficulty + quizzes only)      │
 └───────────────────┼───────────────────────────────────────┘
                     │ HTTP (auth = Jupyter)
                     ▼
@@ -36,41 +37,40 @@ FlowQuest is a JupyterLab extension. The frontend (TypeScript) draws several sur
 │   handlers.py       ── Tornado routes /piis-assistant/... │
 │   analyzer.py       ── AST regions, issues, missions      │
 │   gamification.py   ── pure XP/level state mutations      │
-│   progress_store.py ── ~/.flowquest/progress.json (global)│
+│   profile_store.py  ── ~/.flowquest/profile.json (unified)│
 │   activities.py     ── between-cell activity generation   │
 │   ai_backend.py     ── LLM client + all prompt flows      │
-│   settings.py       ── ~/.flowquest/settings.json         │
 └───────────────────────────────────────────────────────────┘
 ```
 
-## Three storage locations
+## Single unified storage
 
 | Where | What's there | Scope / lifetime | Owner |
 | --- | --- | --- | --- |
-| `~/.flowquest/progress.json` | XP total, XP by category, level (derived), award log, reflections, explored-cell hashes, quiz tallies, idempotency keys | **Global** — per user, across every notebook | Server (`progress_store.py`) |
-| `~/.flowquest/settings.json` (+ OS keychain) | Model, base URL, API key, favorite models | Per user | Server (`settings.py`) |
+| `~/.flowquest/profile.json` | XP total, XP by category, level (derived), award log, reflections, explored-cell hashes, quiz tallies, idempotency keys, model, base URL, API key (or OS keychain), favorite models | **Global** — per user, across every notebook | Server (`profile_store.py`) |
 | `notebook.metadata.flowquest` | `difficulty` + generated `quizzes` + per-notebook `chat` transcript | Per notebook. Travels with the `.ipynb`. | Frontend (`questStore.ts`) |
 
 XP and levels are **global and server-owned**: a level reflects your whole journey, not one file, and the frontend never computes the score. Idempotency keys are namespaced per notebook by the handlers (`"<notebookPath>::<raw key>"`) so the same mission/quiz/reflection can be earned **once per notebook** while XP pools into one global total.
 
-Restart the container, the volume, the kernel, or the browser tab — progression survives because it's in `progress.json`; difficulty and quizzes survive because they're in the `.ipynb`.
+Restart the container, the volume, the kernel, or the browser tab — progression survives because it's in `profile.json`; difficulty and quizzes survive because they're in the `.ipynb`.
 
 ## Data flow for a typical action
 
 Take "claim a mission":
 
 1. User clicks **Claim +N** on a mission card in the sidebar (or the in-cell panel).
-2. `sidebar.ts` calls `apiRequest('piis-assistant/mission/claim', { state, notebookPath, missionId, category, xp, label })`.
-3. `MissionClaimHandler` runs `progress_store.mutate(lambda s: gamification.award_xp(...))` with award key `"<notebookPath>::mission:<id>"`. The mutation:
+2. The React component calls `store.claimMission({ notebookPath, missionId, ... })`.
+3. Store fires `apiRequest('piis-assistant/mission/claim', { state, notebookPath, missionId, category, xp, label })` to the backend.
+4. `MissionClaimHandler` runs `_mutate_progress(lambda s: gamification.award_xp(...))` with award key `"<notebookPath>::mission:<id>"`. The mutation:
    - rejects duplicates (the award key is already in `completedAwardKeys`),
    - adds the XP to the total and to the category bucket,
    - appends to the award log,
    - touches the activity streak.
-4. The handler returns `{ state: gamification.public_view(new_state), outcome }`.
-5. `sidebar.ts` receives the new state and calls the shared `applyState(state)` callback.
-6. `applyState` replaces the in-memory global mirror and re-renders **every** open notebook's surfaces (banner, sidebar, decorator, quest cells, avatar) so they show the new XP/level.
+5. The handler returns `{ state: gamification.public_view(new_state), outcome }`.
+6. `FlowQuestStore.adoptGlobalState()` replaces the in-memory mirror and emits to all `useSyncExternalStore` subscribers.
+7. Every React surface (banner, sidebar, cell panels, avatar) re-renders with the new XP/level.
 
-Every mutation follows the same shape: **state in → pure mutation → new state out**, idempotent on a unique award key, serialised under a process lock in `progress_store.mutate`.
+Every mutation follows the same shape: **state in → pure mutation → new state out**, idempotent on a unique award key, serialised under a process lock in `profile_store.mutate`.
 
 ## XP, levels, and ranks
 
@@ -192,11 +192,11 @@ each "where does what appear" decision is made.
 
 | Surface | Placement rule | Source |
 | --- | --- | --- |
-| **In-notebook banner** | One per open notebook, pinned to the top of the scroll area. Always present. | `notebookBanner.ts` |
-| **Per-cell chip** | One per real cell, mounted at the top of the cell (indented past Jupyter's prompt gutter). Always present. | `cellDecorations.ts` |
-| **Inline cell panel** | Inserted directly below a cell's input when its chip is clicked; tied 1:1 to that cell. Sub-sections (Issues, Missions) render only if that cell has them. | `cellDecorations.ts` |
-| **Virtual activity cell** | One per *injection point*, placed after its anchor cell (see below). | `questCells.ts` + `cellModules/` |
-| **Sidebar (Quest / Flowy / Chat)** | Single shared left-rail widget; fixed tabs. Reflects the current notebook's analysis + global XP. | `sidebar.ts` |
+| **In-notebook banner** | One per open notebook, pinned to the top of the scroll area. Always present. | `notebookBanner.tsx` → `NotebookBanner.tsx` |
+| **Per-cell chip** | One per real cell, mounted at the top of the cell. Always present. | `cellDecorations.tsx` → `CellPanel.tsx` |
+| **Inline cell panel** | Inserted directly below a cell's input when its chip is clicked; tied 1:1 to that cell. | `cellDecorations.tsx` → `CellPanel.tsx` |
+| **Virtual activity cell** | One per *injection point*, placed after its anchor cell. | `questCells.tsx` + `components/ChoiceActivity.tsx`, `OpenActivity.tsx` |
+| **Sidebar (Quest / Flowy / Chat)** | Single shared left-rail widget; fixed tabs. Reflects the current notebook's analysis + global XP. | `sidebar.tsx` → `SidebarApp.tsx` + tab components |
 
 ### Region classification — `analyzer._classify_region`
 
@@ -280,9 +280,10 @@ banner + sidebar (from questState + analysis).
 | Available difficulty levels and prompt suffixes | `ai_backend.py::_DIFFICULTY_PROFILES` |
 | Between-cell activity kinds | `activities.py::ACTIVITY_SPECS` (+ a frontend `CellModule` in `src/cellModules/`) |
 | Quiz fallback text | `ai_backend.py::_FALLBACK_QUIZZES` |
-| Sidebar layout | `src/sidebar.ts` |
-| In-notebook banner | `src/notebookBanner.ts` |
-| Per-cell chip + panel | `src/cellDecorations.ts` |
-| Activity cell rendering | `src/questCells.ts` + `src/cellModules/` |
-| Flowy avatar behaviour | `src/avatarAssistant.ts` + `src/flowySprite.ts` |
+| Sidebar layout | `src/components/SidebarApp.tsx` + `src/components/sidebar/*.tsx` |
+| In-notebook banner | `src/notebookBanner.tsx` + `src/components/NotebookBanner.tsx` |
+| Per-cell chip + panel | `src/cellDecorations.tsx` + `src/components/CellPanel.tsx` |
+| Activity cell rendering | `src/questCells.tsx` + `src/components/ChoiceActivity.tsx`, `OpenActivity.tsx` |
+| Flowy avatar behaviour | `src/components/AvatarAssistant.tsx` + `src/flowySprite.ts` |
+| State management / hooks | `src/state/store.ts`, `src/state/hooks.ts`, `src/state/StoreContext.tsx` |
 | Visual style | `style/index.css` |

@@ -27,6 +27,8 @@
       transparent 55%
     ),
     var(--fq-surface);
+  backdrop-filter: var(--fq-blur);
+  -webkit-backdrop-filter: var(--fq-blur);
   color: var(--jp-ui-font-color1);
   box-shadow: var(--fq-shadow-soft);
   overflow: hidden;
@@ -221,7 +223,7 @@
   align-items: center;
   gap: 5px;
   box-sizing: border-box;
-  height: 30px;
+  height: 26px;
   padding: 0 14px;
   border: var(--fq-border);
   border-radius: var(--fq-radius-pill);
@@ -352,23 +354,26 @@
   gap: 0;
 }
 
-.flowquest-cellPanel-region-load     { box-shadow: inset 4px 0 0 var(--fq-region-load); }
-.flowquest-cellPanel-region-clean    { box-shadow: inset 4px 0 0 var(--fq-region-clean); }
-.flowquest-cellPanel-region-explore  { box-shadow: inset 4px 0 0 var(--fq-region-explore); }
-.flowquest-cellPanel-region-visualize{ box-shadow: inset 4px 0 0 var(--fq-region-visualize); }
-.flowquest-cellPanel-region-model    { box-shadow: inset 4px 0 0 var(--fq-region-model); }
-.flowquest-cellPanel-region-output   { box-shadow: inset 4px 0 0 var(--fq-region-output); }
-.flowquest-cellPanel-region-narrative{ box-shadow: inset 4px 0 0 var(--fq-region-narrative); }
-.flowquest-cellPanel-region-setup    { box-shadow: inset 4px 0 0 var(--fq-region-setup); }
-.flowquest-cellPanel-region-other    { box-shadow: inset 4px 0 0 var(--fq-region-other); }
+.flowquest-cellPanel-region-load     { --fq-cell-accent: var(--fq-region-load); }
+.flowquest-cellPanel-region-clean    { --fq-cell-accent: var(--fq-region-clean); }
+.flowquest-cellPanel-region-explore  { --fq-cell-accent: var(--fq-region-explore); }
+.flowquest-cellPanel-region-visualize{ --fq-cell-accent: var(--fq-region-visualize); }
+.flowquest-cellPanel-region-model    { --fq-cell-accent: var(--fq-region-model); }
+.flowquest-cellPanel-region-output   { --fq-cell-accent: var(--fq-region-output); }
+.flowquest-cellPanel-region-narrative{ --fq-cell-accent: var(--fq-region-narrative); }
+.flowquest-cellPanel-region-setup    { --fq-cell-accent: var(--fq-region-setup); }
+.flowquest-cellPanel-region-other    { --fq-cell-accent: var(--fq-region-other); }
 
 .flowquest-cellPanelHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px 8px 16px;
-  background: var(--fq-surface-2);
-  border-bottom: var(--fq-border);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 8%, transparent),
+    var(--fq-surface-2) 60%
+  );
+  border-bottom: 1px solid color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 25%, var(--fq-border-color));
   gap: 10px;
 }
 
@@ -408,6 +413,7 @@
   font-size: 14px;
   line-height: 1;
   display: inline-flex;
+  color: var(--fq-cell-accent, inherit);
 }
 
 .flowquest-cellPanelRegionLabel {
@@ -536,6 +542,7 @@
 /* Virtual quest cells                                                    */
 /* ====================================================================== */
 .flowquest-questCell {
+  box-sizing: border-box;
   margin: var(--fq-cell-gap) 6px var(--fq-cell-gap) var(--fq-cell-indent);
   border: var(--fq-border);
   border-radius: var(--fq-radius);
@@ -546,13 +553,7 @@
   overflow: hidden;
 }
 
-.flowquest-questCell::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--fq-accent), var(--fq-accent-5), var(--fq-accent-2));
-}
+
 
 .flowquest-questCellInner {
   display: grid;
@@ -560,11 +561,11 @@
   padding: 0;
 }
 
-.flowquest-questCellInner-load     { box-shadow: inset 6px 0 0 var(--fq-region-load); }
-.flowquest-questCellInner-clean    { box-shadow: inset 6px 0 0 var(--fq-region-clean); }
-.flowquest-questCellInner-explore  { box-shadow: inset 6px 0 0 var(--fq-region-explore); }
-.flowquest-questCellInner-visualize{ box-shadow: inset 6px 0 0 var(--fq-region-visualize); }
-.flowquest-questCellInner-model    { box-shadow: inset 6px 0 0 var(--fq-region-model); }
+.flowquest-questCellInner-load     { --fq-cell-accent: var(--fq-region-load); }
+.flowquest-questCellInner-clean    { --fq-cell-accent: var(--fq-region-clean); }
+.flowquest-questCellInner-explore  { --fq-cell-accent: var(--fq-region-explore); }
+.flowquest-questCellInner-visualize{ --fq-cell-accent: var(--fq-region-visualize); }
+.flowquest-questCellInner-model    { --fq-cell-accent: var(--fq-region-model); }
 
 .flowquest-questCellHeader {
   display: grid;
@@ -572,10 +573,10 @@
   padding: 10px 14px 12px 18px;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--fq-accent) 8%, transparent),
-    color-mix(in srgb, var(--fq-accent-2) 4%, transparent)
+    color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 10%, transparent),
+    transparent
   );
-  border-bottom: var(--fq-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 25%, transparent);
 }
 
 .flowquest-questCellHeaderTop {
@@ -606,11 +607,11 @@
   display: grid;
   place-items: center;
   font-size: 20px;
-  border: var(--fq-border);
+  border: 1px solid color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 30%, transparent);
   border-radius: var(--fq-radius-sm);
-  background: var(--fq-surface);
-  color: var(--fq-accent);
-  box-shadow: var(--fq-shadow);
+  background: color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 10%, transparent);
+  color: var(--fq-cell-accent, var(--fq-accent));
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--fq-cell-accent, var(--fq-accent)) 15%, transparent);
 }
 
 .flowquest-questCellHeaderTitle {
@@ -756,6 +757,7 @@
 
 /* ---- Dismissed quest-cell stub --------------------------------------- */
 .flowquest-questCellStub {
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: auto 1fr auto;
   gap: 12px;

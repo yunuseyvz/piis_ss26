@@ -35,6 +35,9 @@
       transparent 56%
     ),
     var(--jp-layout-color1);
+  backdrop-filter: var(--fq-blur);
+  -webkit-backdrop-filter: var(--fq-blur);
+  border-bottom: var(--fq-border);
   border-bottom: var(--fq-border);
 }
 
@@ -88,6 +91,47 @@
   gap: 6px;
   flex-wrap: wrap;
   align-items: center;
+}
+
+.flowquest-headerActions {
+  display: flex;
+  gap: 4px;
+}
+
+.flowquest-btn-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--fq-border-color);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color1);
+  cursor: pointer;
+  transition: all 0.15s var(--fq-ease);
+}
+
+.flowquest-btn-action:hover {
+  background: var(--fq-accent);
+  color: #fff;
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: var(--fq-shadow-soft);
+}
+
+.flowquest-pill-xp {
+  background: var(--fq-grad-brand);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 6px var(--fq-accent-glow);
+}
+
+.flowquest-xpIcon {
+  display: inline-flex;
+  margin-right: 2px;
+  opacity: 0.9;
 }
 
 /* ---- Tabs ------------------------------------------------------------- */
@@ -362,6 +406,44 @@
   background: color-mix(in srgb, var(--fq-warn) 10%, transparent);
   font-size: 12px;
   color: var(--jp-ui-font-color0);
+}
+
+.flowquest-configBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 12px 4px;
+  border: 1px solid color-mix(in srgb, var(--fq-warn) 50%, transparent);
+  border-radius: var(--fq-radius-md);
+  background: color-mix(in srgb, var(--fq-warn) 12%, transparent);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.flowquest-configBannerIcon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--fq-warn);
+  width: 16px;
+  height: 16px;
+}
+.flowquest-configBannerBody {
+  flex: 1;
+  min-width: 0;
+}
+.flowquest-configBannerTitle {
+  font-weight: 600;
+  color: var(--fq-warn);
+  margin-bottom: 2px;
+}
+.flowquest-configBannerDesc {
+  color: var(--jp-ui-font-color2);
+}
+.flowquest-configBannerBtn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 4px 10px;
 }
 
 .flowquest-thread {

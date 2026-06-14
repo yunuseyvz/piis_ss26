@@ -6,7 +6,7 @@ level. There is no health score, no win condition, and no LLM baseline.
 
 XP is **global** — it belongs to the user and accumulates across every notebook
 they work in. The canonical state lives server-side in
-``~/.flowquest/progress.json`` (see :mod:`progress_store`). Idempotency keys are
+``~/.flowquest/profile.json`` (see :mod:`profile_store`). Idempotency keys are
 namespaced per notebook by the handlers so the same mission/quiz can be earned
 once *per notebook* while XP pools into one global total.
 

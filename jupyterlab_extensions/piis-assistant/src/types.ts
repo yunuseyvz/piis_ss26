@@ -6,7 +6,7 @@
 export type MessageRole = 'user' | 'assistant';
 export type SidebarPhase = 'idle' | 'loading' | 'ready' | 'error';
 export type ContextMode = 'active-cell' | 'whole-notebook' | 'workspace';
-export type SidebarTab = 'quest' | 'flowy' | 'chat';
+export type SidebarTab = 'quest' | 'cell' | 'chat';
 export type MissionKind =
   | 'exploration'
   | 'understanding'

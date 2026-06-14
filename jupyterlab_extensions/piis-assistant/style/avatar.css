@@ -304,11 +304,6 @@
   50% { transform: rotate(4deg); }
 }
 
-@keyframes flowquest-avatarNod {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(3px); }
-}
-
 @keyframes flowquest-avatarShake {
   0%, 100% { transform: translateX(0) rotate(0deg); }
   25% { transform: translateX(-1.5px) rotate(-2deg); }
@@ -393,18 +388,17 @@
   border-radius: var(--fq-radius);
   background: var(--jp-layout-color0, #fff);
   color: var(--jp-ui-font-color1);
-  font-size: 12px;
+  font-family: 'Outfit', sans-serif;
+  font-size: 13px;
   line-height: 1.5;
-  box-shadow: var(--fq-shadow-pop);
-  opacity: 0;
-  transform: translateY(8px) scale(0.96);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  animation: flowquest-bubbleIn 0.35s cubic-bezier(0.18, 0.9, 0.32, 1.2) forwards;
   pointer-events: auto;
 }
 
-.flowquest-avatarBubble.is-visible {
-  opacity: 1;
-  transform: translateY(0) scale(1);
+@keyframes flowquest-bubbleIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .flowquest-avatarBubble:last-child::after {
@@ -432,7 +426,7 @@
   z-index: 1;
 }
 
-.flowquest-avatarBubble.is-visible:not(:last-child) {
+.flowquest-avatarBubble:not(:last-child) {
   opacity: 0.72;
 }
 
@@ -510,6 +504,57 @@ body[data-jp-theme-light='false'] .flowquest-avatarBubble:last-child::before {
   30% { transform: scale(1.18) rotate(-4deg); }
   55% { transform: scale(0.94) rotate(3deg); }
   100% { transform: scale(1) rotate(0deg); }
+}
+
+.flowquest-avatar.is-levelUp {
+  animation: flowquest-avatarLevelUp 1.2s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+@keyframes flowquest-avatarLevelUp {
+  0% { transform: scale(1) rotate(0deg); }
+  20% { transform: scale(1.3) rotate(-15deg); }
+  40% { transform: scale(1.4) rotate(15deg); filter: drop-shadow(0 0 20px var(--fq-accent-3)); }
+  60% { transform: scale(1.3) rotate(-10deg); }
+  80% { transform: scale(1.1) rotate(5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.flowquest-levelUpPop {
+  position: absolute;
+  right: -10px;
+  bottom: 120%;
+  transform: translate(0, 0);
+  transform-origin: right bottom;
+  pointer-events: none;
+  z-index: 40;
+  font-weight: 900;
+  font-size: 24px;
+  color: #fff;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24, #f59e0b);
+  background-size: 200% auto;
+  border-radius: var(--fq-radius-pill);
+  padding: 6px 18px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4);
+  border: 2px solid #fff;
+  opacity: 0;
+}
+
+.flowquest-levelUpPop.is-animating {
+  animation: flowquest-levelUpPopAnim 3.5s cubic-bezier(0.18, 0.9, 0.32, 1.2) forwards,
+             flowquest-shimmer 2s linear infinite;
+}
+
+@keyframes flowquest-levelUpPopAnim {
+  0% { opacity: 0; transform: translate(0, 20px) scale(0.5); }
+  10% { opacity: 1; transform: translate(0, -20px) scale(1.2); }
+  20% { transform: translate(0, -10px) scale(1); }
+  85% { opacity: 1; transform: translate(0, -10px) scale(1); }
+  100% { opacity: 0; transform: translate(0, -40px) scale(0.8); }
+}
+
+@keyframes flowquest-shimmer {
+  to { background-position: 200% center; }
 }
 
 .flowquest-avatarSparkles {

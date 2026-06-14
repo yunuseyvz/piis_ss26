@@ -138,6 +138,24 @@ export class QuestMetadataStore {
     }
   }
 
+  /**
+   * Wipe every FlowQuest field from this notebook's metadata (difficulty,
+   * quizzes, chat) and persist immediately. Used by the "Fresh start"
+   * reset.
+   */
+  clearAll(): void {
+    const model = this.panel.content.model;
+    if (!model) return;
+    if (this.pendingSaveHandle !== null) {
+      window.clearTimeout(this.pendingSaveHandle);
+      this.pendingSaveHandle = null;
+    }
+    model.sharedModel.setMetadata(METADATA_KEY, {} as unknown as never);
+    this.panel.context.save().catch(() => {
+      /* best-effort */
+    });
+  }
+
   private scheduleSave(): void {
     if (this.pendingSaveHandle !== null) {
       window.clearTimeout(this.pendingSaveHandle);
