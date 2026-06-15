@@ -12,35 +12,16 @@
 /* ====================================================================== */
 .flowquest-banner {
   position: relative;
-  margin: 0 4px var(--fq-cell-gap) 4px;
+  margin: var(--fq-cell-gap) 6px var(--fq-cell-gap) var(--fq-cell-indent);
   border: var(--fq-border);
   border-radius: var(--fq-radius);
-  background:
-    radial-gradient(
-      120% 140% at 0% 0%,
-      color-mix(in srgb, var(--fq-accent) 8%, transparent),
-      transparent 55%
-    ),
-    radial-gradient(
-      120% 140% at 100% 0%,
-      color-mix(in srgb, var(--fq-accent-2) 8%, transparent),
-      transparent 55%
-    ),
-    var(--fq-surface);
+  background: var(--fq-surface-2);
   backdrop-filter: var(--fq-blur);
   -webkit-backdrop-filter: var(--fq-blur);
   color: var(--jp-ui-font-color1);
   box-shadow: var(--fq-shadow-soft);
   overflow: hidden;
   z-index: 2;
-}
-
-.flowquest-banner::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: var(--fq-grad-brand);
 }
 
 .flowquest-bannerInner {

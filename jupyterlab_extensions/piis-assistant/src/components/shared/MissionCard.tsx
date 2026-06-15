@@ -9,18 +9,18 @@ import { Icon } from './Icon';
 interface MissionCardProps {
   mission: Mission;
   claimed: boolean;
-  loading?: boolean;
-  error?: string | null;
-  onClaim?: (mission: Mission) => void;
+  checking?: boolean;
+  checkResult?: { passed: boolean; feedback: string } | null;
+  onCheck?: (mission: Mission) => void;
   onFocusCell?: (index: number) => void;
 }
 
 export function MissionCard({
   mission,
   claimed,
-  loading = false,
-  error = null,
-  onClaim,
+  checking = false,
+  checkResult = null,
+  onCheck,
   onFocusCell
 }: MissionCardProps): JSX.Element {
   const points = mission.xp ?? 0;
@@ -56,24 +56,28 @@ export function MissionCard({
         </div>
       )}
       <div className="flowquest-missionHint">{mission.completion_hint}</div>
-      {error && (
-        <div className="flowquest-inlineError flowquest-inlineError-compact">{error}</div>
+      {checkResult && (
+        <div className={`flowquest-missionFeedback ${checkResult.passed ? 'is-pass' : 'is-fail'}`}>
+          {checkResult.feedback}
+        </div>
       )}
       <div className="flowquest-missionActions">
         <button
           type="button"
           className="flowquest-btn flowquest-btn-primary"
-          disabled={claimed || loading || !onClaim}
-          onClick={() => onClaim?.(mission)}
+          disabled={claimed || checking || !onCheck}
+          onClick={() => onCheck?.(mission)}
         >
           {claimed ? (
             <>
-              <Icon name="check" /> Claimed
+              <Icon name="check" /> Complete
             </>
-          ) : loading ? (
-            'Claiming…'
+          ) : checking ? (
+            'Checking…'
+          ) : checkResult && !checkResult.passed ? (
+            'Check again'
           ) : (
-            `Claim +${points}`
+            'Check'
           )}
         </button>
       </div>

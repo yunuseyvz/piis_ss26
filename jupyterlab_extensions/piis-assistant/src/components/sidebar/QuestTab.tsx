@@ -22,12 +22,14 @@ interface QuestTabProps {
     applyState: (state: QuestState) => void;
     getState: () => QuestState;
   };
+  generatingMissions: boolean;
+  missions: Mission[];
   nextSteps: string;
   loadingNextSteps: boolean;
   onLoadNextSteps: () => void;
-  onClaim: (mission: Mission) => void;
-  claiming: Set<string>;
-  claimErrors: Map<string, string>;
+  onCheck: (mission: Mission) => void;
+  checking: Set<string>;
+  checkResults: Map<string, { passed: boolean; feedback: string }>;
 }
 
 export function QuestTab({
@@ -37,17 +39,18 @@ export function QuestTab({
   analyzing,
   configured,
   callbacks,
+  generatingMissions,
+  missions,
   nextSteps,
   loadingNextSteps,
   onLoadNextSteps,
-  onClaim,
-  claiming,
-  claimErrors
+  onCheck,
+  checking,
+  checkResults
 }: QuestTabProps): JSX.Element {
   const notebookName = state.notebookPath
     ? state.notebookPath.split('/').pop() || state.notebookPath
     : 'No notebook open';
-  const missions = analysis?.missions ?? [];
   const completed = new Set(state.completedAwardKeys ?? []);
   const awardPrefix = notebookAwardPrefix(state.notebookPath);
   const isClaimed = (id: string) => completed.has(`${awardPrefix}mission:${id}`);
@@ -81,7 +84,7 @@ export function QuestTab({
               'Scanning…'
             ) : (
               <>
-                <Icon name="rescan" /> Re-scan
+                <Icon name="rescan" /> Generate
               </>
             )}
           </button>
@@ -92,16 +95,20 @@ export function QuestTab({
             {missions.length} total · {openMissions.length} open
           </div>
         </div>
-        {missions.length ? (
+        {generatingMissions ? (
+          <div className="flowquest-paddedBox">
+            <Spinner label="Architecting missions for this notebook…" />
+          </div>
+        ) : missions.length ? (
           <ul className="flowquest-missionList">
             {missions.map(mission => (
               <MissionCard
                 key={mission.id}
                 mission={mission}
                 claimed={isClaimed(mission.id)}
-                loading={claiming.has(mission.id)}
-                error={claimErrors.get(mission.id) ?? null}
-                onClaim={onClaim}
+                checking={checking.has(mission.id)}
+                checkResult={checkResults.get(mission.id) ?? null}
+                onCheck={onCheck}
                 onFocusCell={callbacks.focusCell}
               />
             ))}

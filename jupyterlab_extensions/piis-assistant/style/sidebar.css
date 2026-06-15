@@ -331,10 +331,34 @@
   color: var(--jp-ui-font-color0);
 }
 
-.flowquest-missionDesc {
+.flowquest-missionDesc,
+.flowquest-missionFeedback {
   font-size: 12px;
   line-height: 1.5;
+}
+
+.flowquest-missionDesc {
   color: var(--jp-ui-font-color1);
+}
+
+.flowquest-missionFeedback {
+  margin-top: 2px;
+  padding: 8px 10px;
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-missionFeedback.is-pass {
+  background: color-mix(in srgb, var(--fq-stabilization) 15%, transparent);
+  color: var(--fq-stabilization);
+  border: 1px solid color-mix(in srgb, var(--fq-stabilization) 30%, transparent);
+}
+
+.flowquest-missionFeedback.is-fail {
+  background: color-mix(in srgb, var(--fq-warn) 15%, transparent);
+  color: var(--fq-warn);
+  border: 1px solid color-mix(in srgb, var(--fq-warn) 30%, transparent);
 }
 
 .flowquest-missionHint {

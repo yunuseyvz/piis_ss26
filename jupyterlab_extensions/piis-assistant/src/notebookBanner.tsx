@@ -51,19 +51,15 @@ export class NotebookBanner extends ReactWidgetBase {
 
   private attach(): void {
     const notebookNode = this.panel.content.node;
-    const cellsContainer =
-      notebookNode.querySelector('.jp-Notebook-container') ??
-      notebookNode.querySelector('.jp-WindowedPanel-outer') ??
-      notebookNode;
-
-    if (!cellsContainer) return;
-    if (this.host.parentElement === cellsContainer && cellsContainer.firstChild === this.host) {
+    const innerContainer = notebookNode.querySelector('.jp-WindowedPanel-inner') ?? notebookNode;
+    
+    if (this.host.parentElement === innerContainer && innerContainer.firstChild === this.host) {
       return;
     }
     if (this.host.parentElement) {
       this.host.remove();
     }
-    cellsContainer.insertBefore(this.host, cellsContainer.firstChild);
+    innerContainer.insertBefore(this.host, innerContainer.firstChild);
   }
 
   protected render(): void {

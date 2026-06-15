@@ -82,6 +82,7 @@ export class NotebookWiring {
       await panel.context.ready;
     }
     const path = panel.context.path;
+    const metadata = this.bundles.get(panel)?.metadata;
     this.deps.store.setNotebookSlice(path, { analyzing: true });
     this.bundles.get(panel)?.banner.update();
     this.bundles.get(panel)?.avatar.setThinking(true);
@@ -91,23 +92,41 @@ export class NotebookWiring {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      this.deps.store.adoptGlobalState(response.questState);
+      const difficulty = metadata?.readDifficulty() ?? 'medium';
       this.deps.store.setNotebookSlice(path, {
         analysis: response,
         analyzing: false,
         state: {
-          ...response.questState,
+          ...this.deps.store.getGlobalState(),
           notebookKey: path,
           notebookPath: path,
-          difficulty: this.bundles.get(panel)?.metadata.readDifficulty() ?? 'medium'
+          difficulty
         }
       });
-      const auto = response.autoCompleted ?? [];
-      if (auto.length) {
-        this.deps.sidebar.showAutoChecks(auto);
-      }
       if (force) {
         this.deps.sidebar.flashToast('Scanned notebook.');
+      }
+
+      // Fire LLM mission generation asynchronously (non-blocking)
+      const currentSlice = this.deps.store.getNotebookSlice(path);
+      const hasMissions = currentSlice.missions && currentSlice.missions.length > 0;
+      
+      if (this.deps.sidebar.isConfigured() && (force || !hasMissions)) {
+        this.deps.store.setNotebookSlice(path, { generatingMissions: true });
+        this.deps.store.generateMissions({
+          analysis: response,
+          notebookPath: path,
+          difficulty,
+          cells: this.currentNotebookCells()
+        }).then(result => {
+          this.deps.store.setNotebookSlice(path, {
+            missions: result.missions,
+            generatingMissions: false
+          });
+          metadata?.writeLlmMissions(result.missions);
+        }).catch(() => {
+          this.deps.store.setNotebookSlice(path, { generatingMissions: false });
+        });
       }
     } catch (error) {
       this.deps.sidebar.flashToast(`Analyze failed: ${(error as Error).message}`);
@@ -150,6 +169,7 @@ export class NotebookWiring {
 
       this.deps.store.ensureNotebookSlice(path, {
         chat: metadata.readChat(),
+        missions: metadata.readLlmMissions(),
         state: {
           ...this.deps.store.getGlobalState(),
           notebookKey: path,
@@ -245,6 +265,25 @@ export class NotebookWiring {
     });
   };
 
+  currentNotebookCells = (): Array<{ index: number; source: string }> => {
+    const panel = this.currentPanel();
+    if (!panel) return [];
+    const model = panel.content.model;
+    if (!model) return [];
+    
+    const cells: Array<{ index: number; source: string }> = [];
+    for (let i = 0; i < model.cells.length; i++) {
+      const cell = model.cells.get(i);
+      if (cell) {
+        cells.push({
+          index: i,
+          source: cell.sharedModel.getSource()
+        });
+      }
+    }
+    return cells;
+  };
+
   saveChat = (messages: any[]): void => {
     const panel = this.currentPanel();
     if (!panel) return;
@@ -271,7 +310,9 @@ export class NotebookWiring {
       state: nextState,
       chat: slice.chat,
       analysis: slice.analysis,
-      analyzing: slice.analyzing
+      analyzing: slice.analyzing,
+      missions: slice.missions,
+      generatingMissions: slice.generatingMissions
     });
   };
 
@@ -295,7 +336,9 @@ export class NotebookWiring {
           difficulty: 'medium'
         },
         chat: [],
-        analysis: null
+        analysis: null,
+        missions: [],
+        generatingMissions: false
       });
     });
     this.deps.sidebar.flashToast('Fresh start · everything reset.');

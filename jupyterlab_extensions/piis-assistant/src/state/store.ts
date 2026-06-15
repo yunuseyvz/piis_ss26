@@ -24,6 +24,9 @@ import type {
   EndpointStatus,
   ExplainResponse,
   GlobalSettings,
+  Mission,
+  MissionCheckResponse,
+  MissionGenerateResponse,
   NextStepsResponse,
   QuestState,
   ReflectPromptResponse
@@ -63,6 +66,8 @@ export interface NotebookSlice {
   state: QuestState;
   chat: ConversationMessage[];
   analyzing: boolean;
+  missions: Mission[];
+  generatingMissions: boolean;
 }
 
 /** Shared singleton — returned by getNotebookSlice for unknown paths. */
@@ -70,7 +75,9 @@ const EMPTY_SLICE: NotebookSlice = Object.freeze({
   analysis: null,
   state: EMPTY_QUEST_STATE,
   chat: [],
-  analyzing: false
+  analyzing: false,
+  missions: [],
+  generatingMissions: false
 });
 
 function isFresher(incoming: QuestState, current: QuestState): boolean {
@@ -274,6 +281,8 @@ export class FlowQuestStore {
         state: { ...this.globalState, notebookKey: notebookPath, notebookPath },
         chat: [],
         analyzing: false,
+        missions: [],
+        generatingMissions: false,
         ...seed
       };
       this.notebookSlices.set(notebookPath, slice);
@@ -289,7 +298,9 @@ export class FlowQuestStore {
       analysis: null,
       state: { ...this.globalState, notebookKey: notebookPath, notebookPath },
       chat: [],
-      analyzing: false
+      analyzing: false,
+      missions: [],
+      generatingMissions: false
     };
     const next = { ...current, ...patch };
     this.notebookSlices.set(notebookPath, next);
@@ -305,22 +316,36 @@ export class FlowQuestStore {
 
   // ---- API methods ----
 
-  async claimMission(args: {
+  async generateMissions(args: {
+    analysis: AnalysisResponse;
     notebookPath: string;
-    missionId: string;
-    category: string;
-    xp: number;
-    label: string;
-  }): Promise<ClaimResponse> {
-    const response = await apiRequest<ClaimResponse>('piis-assistant/mission/claim', {
+    difficulty: DifficultyLevel;
+    cells: Array<{ index: number; source: string }>;
+  }): Promise<MissionGenerateResponse> {
+    return apiRequest<MissionGenerateResponse>('piis-assistant/missions/generate', {
       method: 'POST',
       body: JSON.stringify({
-        state: this.globalState,
+        analysis: args.analysis,
         notebookPath: args.notebookPath,
-        missionId: args.missionId,
-        category: args.category,
-        xp: args.xp,
-        label: args.label
+        difficulty: args.difficulty,
+        cells: args.cells
+      })
+    });
+  }
+
+  async checkMission(args: {
+    mission: Mission;
+    cells: Array<{ index: number; source: string }>;
+    notebookPath: string;
+    difficulty: DifficultyLevel;
+  }): Promise<MissionCheckResponse> {
+    const response = await apiRequest<MissionCheckResponse>('piis-assistant/missions/check', {
+      method: 'POST',
+      body: JSON.stringify({
+        mission: args.mission,
+        cells: args.cells,
+        notebookPath: args.notebookPath,
+        difficulty: args.difficulty
       })
     });
     if (response.state) {

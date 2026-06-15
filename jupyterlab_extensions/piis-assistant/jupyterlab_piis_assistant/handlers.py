@@ -19,9 +19,11 @@ from .ai_backend import (
     AssistantBackendError,
     chat_payload,
     explain_cell_payload,
+    generate_missions_payload,
     next_steps_payload,
     reflect_prompt_payload,
     status_payload,
+    verify_mission_payload,
 )
 from .analyzer import analyze_notebook, result_to_dict
 
@@ -160,62 +162,16 @@ class AssistantChatHandler(APIHandler):
         self.finish(json.dumps(payload))
 
 
-def _auto_check_rules(result: Any) -> list[tuple[str, str, int, str]]:
-    """Return (award_key, category, xp, label) for satisfied conditions.
-
-    These award small XP when the analyzer sees the user has engaged with or
-    structured the notebook, so progress keeps rewarding good behaviour even
-    without pressing a claim button.
-    """
-    issue_kinds = {issue["kind"] for issue in result.issues}
-    has_visual = any(c.region == "visualize" for c in result.cells)
-    has_model = any(c.region == "model" for c in result.cells)
-    has_eval = any(
-        any(kw in c.source_preview for kw in ("score", "accuracy_", "report", "confusion_", "cross_val"))
-        for c in result.cells
-        if c.region == "model"
-    )
-    has_markdown = any(c.cell_type == "markdown" and c.source_preview.strip() for c in result.cells)
-
-    checks: list[tuple[str, str, int, str, bool]] = [
-        ("auto:no-unused-vars", "stabilization", 4, "No unused variables", "unused_variable" not in issue_kinds),
-        (
-            "auto:clean-execution",
-            "stabilization",
-            6,
-            "Execution order is consistent",
-            "out_of_order" not in issue_kinds and "not_executed" not in issue_kinds,
-        ),
-        ("auto:no-duplicates", "stabilization", 3, "No duplicated cells", "duplicated" not in issue_kinds),
-        ("auto:has-visualization", "exploration", 5, "Notebook includes a visualization", has_visual),
-        ("auto:model-evaluated", "understanding", 8, "Model has an evaluation step", has_model and has_eval),
-        ("auto:has-markdown", "reflection", 4, "Narrative markdown present", has_markdown),
-    ]
-    return [(k, c, p, l) for k, c, p, l, satisfied in checks if satisfied]
-
 
 class AnalyzeHandler(APIHandler):
     @web.authenticated
     async def post(self) -> None:
         body = self.get_json_body() or {}
         notebook_path = str(body.get("notebookPath") or "")
-        key_ns = _notebook_ns(body)
 
         def run() -> dict[str, Any]:
             result = analyze_notebook(body, notebook_path=notebook_path)
-            payload = result_to_dict(result)
-            # Namespace auto-check keys per notebook, then apply against the
-            # global progression file.
-            checks = [
-                (f"{key_ns}{key}", category, xp, label)
-                for key, category, xp, label in _auto_check_rules(result)
-            ]
-            new_progress, auto_applied = _mutate_progress(
-                lambda s: gamification.apply_auto_checks(s, checks)
-            )
-            payload["questState"] = gamification.public_view(new_progress)
-            payload["autoCompleted"] = auto_applied
-            return payload
+            return result_to_dict(result)
 
         try:
             payload = await asyncio.to_thread(run)
@@ -245,31 +201,6 @@ class QuestInitHandler(APIHandler):
         self.finish(json.dumps({"profile": self._get_public_profile()}))
 
 
-class MissionClaimHandler(APIHandler):
-    """Award XP for a mission. Idempotent on (notebook, missionId)."""
-
-    @web.authenticated
-    def post(self) -> None:
-        body = self.get_json_body() or {}
-        mission_id = str(body.get("missionId") or "")
-        category = str(body.get("category") or "exploration")
-        xp = int(body.get("xp") or 0)
-        label = str(body.get("label") or mission_id)
-        key_ns = _notebook_ns(body)
-        if not mission_id:
-            raise web.HTTPError(400, reason="missionId required")
-
-        new_progress, outcome = _mutate_progress(
-            lambda s: gamification.award_xp(
-                s,
-                category=category,
-                amount=xp,
-                award_key=f"{key_ns}mission:{mission_id}",
-                label=label,
-            )
-        )
-        self.set_header("Content-Type", "application/json")
-        self.finish(json.dumps({"state": gamification.public_view(new_progress), "outcome": outcome}))
 
 
 class ExplainCellHandler(APIHandler):
@@ -633,6 +564,99 @@ class ProfileResetHandler(APIHandler):
         self.finish(json.dumps({"profile": empty}))
 
 
+class MissionGenerateHandler(APIHandler):
+    """Generate LLM-powered missions for a notebook."""
+
+    @web.authenticated
+    async def post(self) -> None:
+        body = self.get_json_body() or {}
+        analysis = body.get("analysis")
+        if not isinstance(analysis, dict):
+            raise web.HTTPError(400, reason="analysis payload is required")
+
+        payload = await _run_llm(
+            self,
+            generate_missions_payload,
+            analysis=analysis,
+            start_path=_root_dir(self),
+            difficulty=_difficulty_from_body(body),
+            cells=body.get("cells")
+        )
+        self.set_header("Content-Type", "application/json")
+        self.finish(json.dumps(payload))
+
+
+class MissionCheckHandler(APIHandler):
+    """Verify whether a mission is fulfilled and award XP if so."""
+
+    @web.authenticated
+    async def post(self) -> None:
+        body = self.get_json_body() or {}
+        mission = body.get("mission")
+        cells = body.get("cells")
+        if not isinstance(mission, dict):
+            raise web.HTTPError(400, reason="mission is required")
+        if not isinstance(cells, list):
+            raise web.HTTPError(400, reason="cells list is required")
+
+        key_ns = _notebook_ns(body)
+        mission_id = str(mission.get("id") or "")
+        if not mission_id:
+            raise web.HTTPError(400, reason="mission.id is required")
+
+        # Check idempotency first — don't call the LLM if already completed.
+        award_key = f"{key_ns}mission:{mission_id}"
+        current = profile_store.get_progress(profile_store.load())
+        if award_key in (current.get("completedAwardKeys") or []):
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({
+                "passed": True,
+                "feedback": "Already completed!",
+                "state": gamification.public_view(current),
+                "outcome": {"granted": False, "reason": "already_completed", "xpAwarded": 0},
+            }))
+            return
+
+        verdict = await _run_llm(
+            self,
+            verify_mission_payload,
+            mission=mission,
+            cells=cells,
+            start_path=_root_dir(self),
+            difficulty=_difficulty_from_body(body),
+        )
+
+        passed = bool(verdict.get("passed"))
+        feedback = str(verdict.get("feedback") or "")
+
+        if passed:
+            category = str(mission.get("kind") or "exploration")
+            xp = int(mission.get("xp") or 8)
+            label = str(mission.get("title") or mission_id)
+            new_progress, outcome = _mutate_progress(
+                lambda s: gamification.award_xp(
+                    s,
+                    category=category,
+                    amount=xp,
+                    award_key=award_key,
+                    label=label,
+                )
+            )
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({
+                "passed": True,
+                "feedback": feedback,
+                "state": gamification.public_view(new_progress),
+                "outcome": outcome,
+            }))
+        else:
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps({
+                "passed": False,
+                "feedback": feedback,
+            }))
+
+
 def setup_handlers(web_app: Any) -> None:
     base_url = web_app.settings.get("base_url", "/")
     handlers = [
@@ -640,8 +664,8 @@ def setup_handlers(web_app: Any) -> None:
         (url_path_join(base_url, "piis-assistant", "chat"), AssistantChatHandler),
         (url_path_join(base_url, "piis-assistant", "analyze"), AnalyzeHandler),
         (url_path_join(base_url, "piis-assistant", "quest", "init"), QuestInitHandler),
-        (url_path_join(base_url, "piis-assistant", "mission", "claim"), MissionClaimHandler),
-        (url_path_join(base_url, "piis-assistant", "quest", "claim"), MissionClaimHandler),
+        (url_path_join(base_url, "piis-assistant", "missions", "generate"), MissionGenerateHandler),
+        (url_path_join(base_url, "piis-assistant", "missions", "check"), MissionCheckHandler),
         (url_path_join(base_url, "piis-assistant", "explain-cell"), ExplainCellHandler),
         (url_path_join(base_url, "piis-assistant", "reflect", "prompt"), ReflectPromptHandler),
         (url_path_join(base_url, "piis-assistant", "reflect", "answer"), ReflectAnswerHandler),

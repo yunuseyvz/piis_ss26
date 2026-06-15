@@ -30,6 +30,7 @@ async function activate(
   const sidebar = new AssistantSidebar({
     store,
     getCurrentNotebookPath: () => wiring?.currentNotebookPath() ?? '',
+    getCurrentNotebookCells: () => wiring?.currentNotebookCells() ?? [],
     refreshAnalysis: async () => {
       const panel = wiring?.currentPanel();
       if (!panel) {

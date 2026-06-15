@@ -27,15 +27,14 @@ import type {
   NextStepsResponse,
   NotebookContext,
   QuizContent,
-  SidebarTab,
-  MissionKind
+  SidebarTab
 } from '../types';
 import { toFriendlyError } from '../uiFeedback';
 
 import { AnimatedNumber, CategoryChart, Icon, XpMeter } from './shared';
 import { ChatTab } from './sidebar/ChatTab';
 import { QuestTab } from './sidebar/QuestTab';
-import { CellTab } from './sidebar/CellTab';
+import { ActiveCellSection } from './sidebar/FlowyTab';
 
 const MESSAGE_HISTORY_LIMIT = 10;
 
@@ -57,20 +56,13 @@ export interface SidebarAppProps {
     applyState: (state: import('../types').QuestState) => void;
     getState: () => import('../types').QuestState;
     getNotebookPath: () => string;
+    getNotebookCells: () => Array<{ index: number; source: string }>;
     openSettings: (tab?: 'global' | 'notebook') => void;
     openHandbook: () => void;
     saveChat: (messages: ConversationMessage[]) => void;
   };
   notebook: NotebookContext;
   notebookPath: string;
-}
-
-export interface AutoCheckNotification {
-  id: string;
-  awardKey: string;
-  category: MissionKind;
-  xp: number;
-  label: string;
 }
 
 export interface SidebarAppHandle {
@@ -81,7 +73,6 @@ export interface SidebarAppHandle {
   startPasteQuiz: (code: string) => Promise<void>;
   isConfigured: () => boolean;
   getMessages: () => ConversationMessage[];
-  showAutoChecks: (checks: Array<{ awardKey: string; category: MissionKind; xp: number; label: string }>) => void;
 }
 
 export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
@@ -91,19 +82,20 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
   ) {
     const globalState = useGlobalState(store);
 
-    const slice = useNotebookState(store, notebookPath);
-    const analysis = slice.analysis;
-    const analyzing = slice.analyzing;
-    const questState = slice.state;
-    const savedChat = slice.chat;
+    const {
+      analysis,
+      analyzing,
+      missions,
+      generatingMissions,
+      state: questState,
+      chat: savedChat
+    } = useNotebookState(store, notebookPath);
 
     const [tab, setTab] = useState<SidebarTab>('quest');
     const status = useEndpointStatus(store);
     const [toast, setToast] = useState<string | null>(null);
     const toastTimer = useRef<number | null>(null);
     const renderedTabRef = useRef<SidebarTab | null>(null);
-
-    const [autoChecks, setAutoChecks] = useState<AutoCheckNotification[]>([]);
 
     const [messages, setMessages] = useState<ConversationMessage[]>(
       savedChat.length ? [...savedChat] : [INITIAL_MESSAGE]
@@ -128,8 +120,8 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
     const [nextSteps, setNextSteps] = useState('');
     const [loadingNextSteps, setLoadingNextSteps] = useState(false);
 
-    const [claiming, setClaiming] = useState<Set<string>>(new Set());
-    const [claimErrors, setClaimErrors] = useState<Map<string, string>>(new Map());
+    const [checking, setChecking] = useState<Set<string>>(new Set());
+    const [checkResults, setCheckResults] = useState<Map<string, { passed: boolean; feedback: string }>>(new Map());
 
     // Load endpoint status once on mount.
     useEffect(() => {
@@ -150,15 +142,6 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
 
     const showTab = useCallback((next: SidebarTab) => setTab(next), []);
 
-    const showAutoChecks = useCallback((checks: Array<{ awardKey: string; category: MissionKind; xp: number; label: string }>) => {
-      if (!checks.length) return;
-      const newChecks = checks.map(c => ({ ...c, id: Math.random().toString(36).substring(2, 9) }));
-      setAutoChecks(prev => [...prev, ...newChecks]);
-      window.setTimeout(() => {
-        setAutoChecks(prev => prev.filter(p => !newChecks.find(n => n.id === p.id)));
-      }, 5500);
-    }, []);
-
     useImperativeHandle(ref, () => ({
       showTab,
       flashToast,
@@ -166,34 +149,37 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
       explainSelectedOutput: () => explainSelectedOutput(),
       startPasteQuiz: (code: string) => startPasteQuiz(code),
       isConfigured: () => status.configured,
-      getMessages: () => messages,
-      showAutoChecks
+      getMessages: () => messages
     }));
 
-    const onClaim = async (mission: Mission) => {
+    const onCheck = async (mission: Mission) => {
       const id = mission.id;
-      setClaiming(prev => new Set([...prev, id]));
-      setClaimErrors(prev => {
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
+      setChecking(prev => new Set([...prev, id]));
       try {
-        const response = await store.claimMission({
+        const response = await store.checkMission({
+          mission,
+          cells: callbacks.getNotebookCells(),
           notebookPath: callbacks.getNotebookPath(),
-          missionId: id,
-          category: mission.kind,
-          xp: mission.xp,
-          label: mission.title
+          difficulty: questState.difficulty ?? 'medium'
         });
+        
+        setCheckResults(prev => {
+          const next = new Map(prev);
+          next.set(id, { passed: response.passed, feedback: response.feedback });
+          return next;
+        });
+
         if (response.outcome?.granted) {
           flashToast(`+${response.outcome.xpAwarded ?? 0} XP`);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Could not claim';
-        setClaimErrors(prev => new Map([...prev, [id, message]]));
+        setCheckResults(prev => {
+          const next = new Map(prev);
+          next.set(id, { passed: false, feedback: `Error: ${(error as Error).message}` });
+          return next;
+        });
       } finally {
-        setClaiming(prev => {
+        setChecking(prev => {
           const next = new Set(prev);
           next.delete(id);
           return next;
@@ -517,16 +503,18 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
                 applyState: callbacks.applyState,
                 getState: callbacks.getState
               }}
+              generatingMissions={generatingMissions ?? false}
+              missions={missions ?? []}
               nextSteps={nextSteps}
               loadingNextSteps={loadingNextSteps}
               onLoadNextSteps={loadNextSteps}
-              onClaim={onClaim}
-              claiming={claiming}
-              claimErrors={claimErrors}
+              onCheck={onCheck}
+              checking={checking}
+              checkResults={checkResults}
             />
           )}
           {tab === 'cell' && (
-            <CellTab
+            <ActiveCellSection
               store={store}
               notebook={notebook}
               globalState={globalState}
@@ -556,20 +544,6 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
             />
           )}
         </div>
-
-        {autoChecks.length > 0 && (
-          <div className="flowquest-autoCheckStack">
-            {autoChecks.map(check => (
-              <div key={check.id} className="flowquest-autoCheckToast is-animating">
-                <Icon name="star" size={14} className="flowquest-autoCheckIcon" />
-                <div className="flowquest-autoCheckContent">
-                  <span className="flowquest-autoCheckLabel">{check.label}</span>
-                  <span className="flowquest-autoCheckXp">+{check.xp} XP</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
 
         {toast && (
           <div className="flowquest-toast">

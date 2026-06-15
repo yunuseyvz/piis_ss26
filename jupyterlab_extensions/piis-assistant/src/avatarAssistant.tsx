@@ -63,18 +63,9 @@ export class AvatarAssistant extends ReactWidgetBase {
   }
 
   private attach(): void {
-    const notebookNode = this.panel.content.node;
-    const cellsContainer =
-      notebookNode.querySelector('.jp-Notebook-container') ??
-      notebookNode.querySelector('.jp-WindowedPanel-outer') ??
-      notebookNode;
-
-    if (!cellsContainer) return;
-    if (this.host.parentElement === cellsContainer) return;
-    if (this.host.parentElement) {
-      this.host.remove();
+    if (this.host.parentElement !== this.panel.node) {
+      this.panel.node.appendChild(this.host);
     }
-    cellsContainer.appendChild(this.host);
   }
 
   protected render(): void {

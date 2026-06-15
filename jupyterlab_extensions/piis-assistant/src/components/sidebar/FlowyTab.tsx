@@ -408,8 +408,17 @@ export function ActiveCellSection({
                     })}
                   </div>
                   {flowyQuiz.awardedXp > 0 && (
-                    <div style={{ marginTop: '16px', color: 'var(--fq-success)', fontWeight: 800, textAlign: 'center', fontSize: '14px', background: 'color-mix(in srgb, var(--fq-success) 12%, transparent)', padding: '12px', borderRadius: 'var(--fq-radius-sm)' }}>
-                      Spot on! +{flowyQuiz.awardedXp} XP
+                    <div style={{ 
+                      marginTop: '16px', 
+                      color: flowyQuiz.answeredCorrectly ? 'var(--fq-success)' : 'var(--jp-ui-font-color2)', 
+                      fontWeight: 800, 
+                      textAlign: 'center', 
+                      fontSize: '14px', 
+                      background: flowyQuiz.answeredCorrectly ? 'color-mix(in srgb, var(--fq-success) 12%, transparent)' : 'var(--fq-surface-2)', 
+                      padding: '12px', 
+                      borderRadius: 'var(--fq-radius-sm)' 
+                    }}>
+                      {flowyQuiz.answeredCorrectly ? `Spot on! +${flowyQuiz.awardedXp} XP` : `Good try! +${flowyQuiz.awardedXp} XP for participating`}
                     </div>
                   )}
                 </div>

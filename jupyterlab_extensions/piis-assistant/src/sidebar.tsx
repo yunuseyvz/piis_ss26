@@ -10,13 +10,14 @@ import { LuminoReactWidget } from './ReactWidget';
 import { SidebarApp, type SidebarAppHandle, type SidebarAppProps } from './components/SidebarApp';
 import { FlowQuestStore, StoreProvider } from './state';
 import { EMPTY_NOTEBOOK } from './notebookContext';
-import type { ConversationMessage, NotebookContext, SidebarTab, MissionKind } from './types';
+import type { ConversationMessage, NotebookContext, SidebarTab } from './types';
 
 const SIDEBAR_ID = 'jupyterlab-piis-assistant:sidebar';
 
 export interface SidebarCallbacks {
   store: FlowQuestStore;
   getCurrentNotebookPath: () => string;
+  getCurrentNotebookCells: () => Array<{ index: number; source: string }>;
   refreshAnalysis: () => Promise<void>;
   focusCell: (index: number) => void;
   openSettings: (tab?: 'global' | 'notebook') => void;
@@ -61,10 +62,6 @@ export class AssistantSidebar extends LuminoReactWidget {
     this.appRef.current?.flashToast(message);
   }
 
-  showAutoChecks(checks: Array<{ awardKey: string; category: MissionKind; xp: number; label: string }>): void {
-    this.appRef.current?.showAutoChecks(checks);
-  }
-
   showTab(tab: SidebarTab): void {
     this.appRef.current?.showTab(tab);
     this.renderReact();
@@ -87,7 +84,7 @@ export class AssistantSidebar extends LuminoReactWidget {
   }
 
   protected renderReact(): void {
-    const { store, getCurrentNotebookPath, refreshAnalysis, focusCell, openSettings, openHandbook, saveChat } = this.callbacks;
+    const { store, getCurrentNotebookPath, getCurrentNotebookCells, refreshAnalysis, focusCell, openSettings, openHandbook, saveChat } = this.callbacks;
     const props: SidebarAppProps = {
       store,
       callbacks: {
@@ -96,6 +93,7 @@ export class AssistantSidebar extends LuminoReactWidget {
         applyState: state => store.adoptGlobalState(state, { force: true }),
         getState: () => store.getGlobalState(),
         getNotebookPath: getCurrentNotebookPath,
+        getNotebookCells: getCurrentNotebookCells,
         openSettings,
         openHandbook,
         saveChat

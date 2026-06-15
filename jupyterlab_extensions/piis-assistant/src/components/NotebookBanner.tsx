@@ -39,11 +39,11 @@ export function NotebookBanner({
   const rank = state.rankTitle ?? 'Notebook Novice';
   const toNext = state.xpToNextLevel ?? 0;
 
-  const missions = analysis?.missions ?? [];
+  const missions = slice.missions ?? [];
   const completedSet = new Set(mergedState.completedAwardKeys ?? []);
   const awardPrefix = notebookAwardPrefix(mergedState.notebookPath);
   const openMissionCount = missions.filter(
-    m => !completedSet.has(`${awardPrefix}mission:${m.id}`)
+    (m: import('../types').Mission) => !completedSet.has(`${awardPrefix}mission:${m.id}`)
   ).length;
   const quizCount = (analysis?.injectionPoints ?? []).length;
 
@@ -131,7 +131,7 @@ export function NotebookBanner({
           type="button"
           className="flowquest-btn-action"
           onClick={onRescan}
-          title="Re-scan notebook"
+          title="Generate missions"
           disabled={analyzing}
         >
           <Icon name={analyzing ? 'hint' : 'rescan'} size={14} />

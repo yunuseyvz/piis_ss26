@@ -182,15 +182,8 @@ export class QuestCellRenderer {
   }
 
   private attachAfter(host: HTMLElement, anchor: HTMLElement): void {
-    const parent = anchor.parentElement;
-    if (!parent) return;
-    const nextSibling = anchor.nextElementSibling;
-    if (host.parentElement !== parent || host.previousElementSibling !== anchor) {
-      if (nextSibling) {
-        parent.insertBefore(host, nextSibling);
-      } else {
-        parent.appendChild(host);
-      }
+    if (host.parentElement !== anchor) {
+      anchor.appendChild(host);
     }
   }
 

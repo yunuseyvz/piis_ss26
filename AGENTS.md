@@ -227,8 +227,7 @@ All under `/piis-assistant/`, all `@web.authenticated`.
 | Level thresholds, rank titles, XP categories | `gamification.py` (`_LEVEL_THRESHOLDS`, `_RANK_TITLES`, `XP_CATEGORIES`) |
 | What counts as an "issue" | `analyzer.py` issue-detection blocks in `analyze_notebook` |
 | Region classification keywords | `analyzer.py` `_REGION_KEYWORDS`, `REGION_ICONS`, `REGION_ORDER` |
-| Mission generation | `analyzer.py::generate_missions` |
-| Auto-checks that grant XP on analyze | `handlers.py::_auto_check_rules` |
+| Mission generation | `ai_backend.py::generate_missions_payload` + `handlers.py::MissionGenerateHandler` |
 | Difficulty prompt suffixes | `ai_backend.py::_DIFFICULTY_PROFILES` |
 | Quiz fallback text | `ai_backend.py::_FALLBACK_QUIZZES` |
 | Add a new between-cell activity kind | `activities.py` (`ACTIVITY_SPECS` + system prompt), analyzer injection logic, and a frontend React component in `src/components/` |
@@ -256,7 +255,7 @@ All under `/piis-assistant/`, all `@web.authenticated`.
 | `sidebar/QuestTab.tsx` | Quest tab: missions list, next-steps, region summary |
 | `sidebar/FlowyTab.tsx` | Flowy tab: spontaneous quiz UI |
 | `sidebar/ChatTab.tsx` | Chat tab: message list, prompt input, starters |
-| `NotebookBanner.tsx` | In-notebook HUD: level meter, XP, missions, difficulty, rescan |
+| `NotebookBanner.tsx` | In-notebook HUD: level meter, XP, missions, difficulty, generate |
 | `CellPanel.tsx` | Per-cell inline panel: explain, reflect, claim missions |
 | `AvatarAssistant.tsx` | Floating Flowy avatar: moods, bubbles, XP pops, paste detection |
 | `SettingsModal.tsx` | Settings dialog: endpoint config, difficulty, wipe, fresh start |
@@ -485,6 +484,12 @@ items 11–12 remain open.
 12. **`analyzer.py` is still large (open).** ~950 lines. Well-sectioned, but
     consider extracting the mission/issue detection passes if you're already
     editing it.
+
+13. **Auto-check rules and AST missions removed (done).** Hardcoded auto-checks and `analyzer.py::generate_missions` were removed in favor of strict LLM-based mission generation and verification (`ai_backend.py::_VERIFY_SYSTEM`).
+
+14. **Mission generation and verification overhaul (done).** Missions are now generated strictly via LLM and are cached along with their `original_sources` (the code state of the targeted cells at the time of generation). The `MissionCheckHandler` passes both the `BEFORE` (cached) and `AFTER` (current) code to the LLM for strict verification, preventing hallucinated success without actual code changes.
+    
+15. **Mission UI polish (done).** Mission cards now expand smoothly on hover. The "Rescan" button was renamed to "Generate", and missions are no longer aggressively regenerated when reloading the page.
 
 When you fix items 11 or 12, update this section.
 

@@ -341,23 +341,6 @@ def record_quiz_attempt(
     )
 
 
-def apply_auto_checks(
-    state: Any,
-    checks: list[tuple[str, str, int, str]],
-) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Award XP for analyzer-driven auto-checks.
-
-    Each entry is ``(award_key, category, xp, label)``. Idempotent per key.
-    """
-    new_state = copy.deepcopy(normalize_state(state))
-    applied: list[dict[str, Any]] = []
-    for key, category, xp, label in checks:
-        new_state, outcome = award_xp(new_state, category, xp, award_key=key, label=label)
-        if outcome.get("granted"):
-            applied.append({"awardKey": key, "category": category, "xp": outcome["xpAwarded"], "label": label})
-    return new_state, applied
-
-
 def wipe_state(state: Any) -> dict[str, Any]:
     """Reset all per-notebook FlowQuest progress."""
     return empty_state()
@@ -373,6 +356,5 @@ __all__ = [
     "award_explore",
     "record_reflection",
     "record_quiz_attempt",
-    "apply_auto_checks",
     "wipe_state",
 ]

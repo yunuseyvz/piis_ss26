@@ -275,7 +275,6 @@ def _generate_json(
             raw_response = client.chat(
                 messages=messages,
                 temperature=0.1 if attempt else 0.35,
-                max_tokens=520,
                 response_format={"type": "json_object"} if attempt == 0 else None,
             )
             return _safe_json_object(raw_response)
