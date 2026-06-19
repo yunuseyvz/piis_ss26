@@ -1,24 +1,20 @@
 /**
- * FlowQuest handbook.
+ * React handbook modal for FlowQuest.
  *
- * A modal-style overlay (same shell as the settings panel) that documents what
- * FlowQuest is and how it works, organised into chapters. Opened from the 📖
- * button in the sidebar header and the in-notebook banner.
- *
- * Chapters are plain Markdown rendered with the in-house `renderMarkdown`
- * (escape-first, so the static content is safe). A left-hand table of contents
- * switches chapters; the content pane scrolls independently.
+ * Displays the static guide chapters with a table of contents and a replay tour
+ * button.
  */
 
-import { escapeHtml } from './api';
-import { renderMarkdown } from './markdown';
+import { useState } from 'react';
 
-const HOST_CLASS = 'flowquest-handbookHost';
+import { Markdown } from './shared';
+import { Icon } from './shared/Icon';
+import type { IconName } from '../icons';
 
 interface Chapter {
   id: string;
   title: string;
-  icon: string;
+  icon: IconName;
   body: string;
 }
 
@@ -26,7 +22,7 @@ const CHAPTERS: Chapter[] = [
   {
     id: 'overview',
     title: 'What is FlowQuest?',
-    icon: '🗺️',
+    icon: 'handbook',
     body: `
 # What is FlowQuest?
 
@@ -57,7 +53,7 @@ turning into a generic chatbot.
   {
     id: 'xp',
     title: 'XP, levels & categories',
-    icon: '⭐',
+    icon: 'star',
     body: `
 # XP, levels & categories
 
@@ -77,10 +73,10 @@ reflect your whole journey.
 Every XP award also lands in one of four buckets, shown as the donut chart in the
 header:
 
-- 🧭 **Exploration** — discovering and reading your notebook.
-- 🧠 **Understanding** — proving you grasp what the code does.
-- 🛠️ **Stabilization** — improving notebook structure and hygiene.
-- 🪞 **Reflection** — reasoning about your choices in your own words.
+- **Exploration** — discovering and reading your notebook.
+- **Understanding** — proving you grasp what the code does.
+- **Stabilization** — improving notebook structure and hygiene.
+- **Reflection** — reasoning about your choices in your own words.
 
 The categories are purely informational — they describe *how* you earned XP. Your
 level depends only on the total.
@@ -100,7 +96,7 @@ level depends only on the total.
   {
     id: 'missions',
     title: 'Missions',
-    icon: '🎯',
+    icon: 'quest',
     body: `
 # Missions
 
@@ -119,28 +115,28 @@ Examples:
 - **Explain the choice** — reflect on a decision in a key cell.
 
 Find missions in the **Quest** tab and in the inline panel of any cell they
-target (marked with a ★ star on the cell chip). A mission is earnable **once per
+target (marked with a star icon on the cell chip). A mission is earnable **once per
 notebook**, so the same mission in a different notebook is a fresh goal.
 `
   },
   {
     id: 'regions',
     title: 'Cell regions & analysis',
-    icon: '🔍',
+    icon: 'region-explore',
     body: `
 # Cell regions & analysis
 
 Every time you edit, FlowQuest analyses the notebook **locally** (no LLM, no
 network) and tags each cell with a **region** based on what its code does:
 
-- ⚙️ **Setup** — imports, config, random seeds.
-- 📦 **Load** — reading data (\`read_csv\`, \`load_dataset\`, …).
-- 🧼 **Clean** — filtering, transforming, scaling, train/test split.
-- 🔍 **Explore** — \`describe\`, \`head\`, \`value_counts\`, correlations.
-- 📊 **Visualize** — plots and charts.
-- 🧠 **Model** — fitting, predicting, scoring.
-- 🖨️ **Output** — printing results.
-- 📝 **Narrative** — markdown cells.
+- **Setup** — imports, config, random seeds.
+- **Load** — reading data (\`read_csv\`, \`load_dataset\`, …).
+- **Clean** — filtering, transforming, scaling, train/test split.
+- **Explore** — \`describe\`, \`head\`, \`value_counts\`, correlations.
+- **Visualize** — plots and charts.
+- **Model** — fitting, predicting, scoring.
+- **Output** — printing results.
+- **Narrative** — markdown cells.
 
 ## The chip badges
 
@@ -162,7 +158,7 @@ inline **Issues** list and which missions get generated.
   {
     id: 'activities',
     title: 'Quizzes & activities',
-    icon: '🧠',
+    icon: 'understanding',
     body: `
 # Quizzes & activities
 
@@ -173,9 +169,9 @@ you're working on.
 
 Three kinds:
 
-- 🎯 **Understanding check** — a multiple-choice question about a cell.
-- 🔮 **Predict the result** — guess what a cell produces before running it.
-- 🗣️ **Teach it back** — explain a cell in your own words; the assistant grades
+- **Understanding check** — a multiple-choice question about a cell.
+- **Predict the result** — guess what a cell produces before running it.
+- **Teach it back** — explain a cell in your own words; the assistant grades
   your answer against a short rubric.
 
 Multiple-choice answers are graded instantly and locally. Teach-back answers are
@@ -192,7 +188,7 @@ understand what you dropped in. You can also trigger this from the **Flowy** tab
   {
     id: 'chat',
     title: 'Chat & difficulty',
-    icon: '💬',
+    icon: 'chat',
     body: `
 # Chat & difficulty
 
@@ -210,15 +206,15 @@ Each notebook has a **difficulty** (easy / medium / hard) set in
 response — explanations, quiz wording, reflective questions, and grading
 strictness — but it does **not** change how much XP anything is worth.
 
-- 🌱 **Easy** — beginner-friendly, gentle.
-- 🧗 **Medium** — practitioner depth, balanced.
-- 🔥 **Hard** — senior-reviewer mode, terse and strict.
+- **Easy** — beginner-friendly, gentle.
+- **Medium** — practitioner depth, balanced.
+- **Hard** — senior-reviewer mode, terse and strict.
 `
   },
   {
     id: 'setup',
     title: 'Setup & data',
-    icon: '⚙️',
+    icon: 'settings',
     body: `
 # Setup & where your data lives
 
@@ -247,94 +243,71 @@ missions, XP, auto-checks — work fully **without** a model configured.
   }
 ];
 
-export class HandbookPanel {
-  private host: HTMLElement | null = null;
-  private isOpen = false;
-  private activeChapter = CHAPTERS[0].id;
+interface HandbookModalProps {
+  isOpen: boolean;
+  initialChapter?: string;
+  onClose: () => void;
+}
 
-  isVisible(): boolean {
-    return this.isOpen;
+export function HandbookModal({
+  isOpen,
+  initialChapter,
+  onClose
+}: HandbookModalProps): JSX.Element | null {
+  const [activeChapter, setActiveChapter] = useState(
+    CHAPTERS.find(c => c.id === initialChapter)?.id ?? CHAPTERS[0].id
+  );
+
+  if (!isOpen) {
+    return null;
   }
 
-  open(chapterId?: string): void {
-    if (chapterId && CHAPTERS.some(c => c.id === chapterId)) {
-      this.activeChapter = chapterId;
-    }
-    if (this.isOpen) {
-      this.render();
-      return;
-    }
-    this.isOpen = true;
-    this.host = document.createElement('div');
-    this.host.className = HOST_CLASS;
-    document.body.appendChild(this.host);
-    this.render();
-  }
+  const chapter = CHAPTERS.find(c => c.id === activeChapter) ?? CHAPTERS[0];
 
-  close(): void {
-    this.isOpen = false;
-    this.host?.remove();
-    this.host = null;
-  }
-
-  private render(): void {
-    if (!this.host) {
-      return;
-    }
-    const chapter = CHAPTERS.find(c => c.id === this.activeChapter) ?? CHAPTERS[0];
-
-    const navHtml = CHAPTERS.map(
-      c => `
-        <button type="button"
-          class="flowquest-handbookNavItem ${c.id === chapter.id ? 'is-active' : ''}"
-          data-action="chapter" data-chapter="${escapeHtml(c.id)}">
-          <span class="flowquest-handbookNavIcon">${escapeHtml(c.icon)}</span>
-          <span>${escapeHtml(c.title)}</span>
-        </button>
-      `
-    ).join('');
-
-    this.host.innerHTML = `
-      <div class="flowquest-settingsBackdrop" data-action="close"></div>
-      <div class="flowquest-handbookModal flowquest" role="dialog" aria-modal="true" aria-label="FlowQuest handbook">
-        <header class="flowquest-settingsHeader">
-          <div class="flowquest-settingsHeading">
-            <span class="flowquest-settingsIcon">📖</span>
+  return (
+    <div className="flowquest-handbookHost">
+      <div className="flowquest-settingsBackdrop" onClick={onClose} />
+      <div className="flowquest-handbookModal flowquest" role="dialog" aria-modal="true" aria-label="FlowQuest handbook">
+        <header className="flowquest-settingsHeader">
+          <div className="flowquest-settingsHeading">
+            <span className="flowquest-settingsIcon">
+              <Icon name="handbook" size={20} />
+            </span>
             <div>
-              <div class="flowquest-cardTitle">FlowQuest Handbook</div>
-              <div class="flowquest-dim">Everything FlowQuest is and does.</div>
+              <div className="flowquest-cardTitle">FlowQuest Handbook</div>
+              <div className="flowquest-dim">Everything FlowQuest is and does.</div>
             </div>
           </div>
-          <button type="button" class="flowquest-btn flowquest-btn-ghost" data-action="close">✕ Close</button>
+          <div className="flowquest-handbookHeaderActions">
+            <button type="button" className="flowquest-btn flowquest-btn-ghost" onClick={onClose}>
+              <Icon name="close" /> Close
+            </button>
+          </div>
         </header>
 
-        <div class="flowquest-handbookBody">
-          <nav class="flowquest-handbookNav" role="tablist">${navHtml}</nav>
-          <article class="flowquest-handbookContent flowquest-md">
-            ${renderMarkdown(chapter.body)}
+        <div className="flowquest-handbookBody">
+          <nav className="flowquest-handbookNav" role="tablist">
+            {CHAPTERS.map(c => (
+              <button
+                key={c.id}
+                type="button"
+                className={`flowquest-handbookNavItem ${c.id === chapter.id ? 'is-active' : ''}`}
+                onClick={() => {
+                  setActiveChapter(c.id);
+                }}
+              >
+                <span className="flowquest-handbookNavIcon">
+                  <Icon name={c.icon} />
+                </span>
+                <span>{c.title}</span>
+              </button>
+            ))}
+          </nav>
+          <article className="flowquest-handbookContent flowquest-md">
+            <Markdown source={chapter.body} />
           </article>
         </div>
       </div>
-    `;
-
-    this.host.querySelectorAll<HTMLElement>('[data-action]').forEach(element => {
-      element.onclick = event => {
-        event.stopPropagation();
-        const action = element.dataset.action;
-        if (action === 'close') {
-          this.close();
-          return;
-        }
-        if (action === 'chapter') {
-          const next = element.dataset.chapter;
-          if (next) {
-            this.activeChapter = next;
-            this.render();
-            const content = this.host?.querySelector('.flowquest-handbookContent');
-            content?.scrollTo({ top: 0 });
-          }
-        }
-      };
-    });
-  }
+    </div>
+  );
 }

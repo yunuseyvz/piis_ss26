@@ -8,7 +8,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from .settings import resolve_endpoint
+from .profile_store import resolve_endpoint
 
 
 _DIFFICULTY_PROFILES: dict[str, dict[str, Any]] = {
@@ -77,7 +77,7 @@ class AssistantClient:
         self,
         messages: list[dict[str, str]],
         temperature: float = 0.2,
-        max_tokens: int = 700,
+        max_tokens: int | None = None,
         response_format: dict[str, str] | None = None,
         max_attempts: int = 3,
         backoff_seconds: float = 1.5,
@@ -91,17 +91,35 @@ class AssistantClient:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
         }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         if response_format is not None:
             kwargs["response_format"] = response_format
 
         last_exc: BaseException | None = None
         used_response_format_fallback = False
+        
+        print("\n" + "="*50)
+        print(f"LLM REQUEST -> {self.model}")
+        print("="*50)
+        for msg in messages:
+            print(f"[{msg['role'].upper()}]:\n{msg['content']}\n")
+        print("="*50 + "\n")
+        
         for attempt in range(1, max_attempts + 1):
             try:
                 response = self.client.chat.completions.create(**kwargs)
                 content = (response.choices[0].message.content or "").strip()
+                
+                print("\n" + "="*50)
+                print(f"LLM RESPONSE (Attempt {attempt})")
+                print("="*50)
+                print(content)
+                print("="*50 + "\n")
+                
+                if "</think>" in content:
+                    content = content.split("</think>")[-1].strip()
                 return content
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
@@ -256,13 +274,34 @@ def status_payload(start_path: str | Path | None = None) -> dict[str, str | bool
             "message": "Missing model / base URL / API key. Open FlowQuest settings to configure them.",
         }
 
+    try:
+        client.chat([{"role": "user", "content": "ping"}], max_tokens=2, max_attempts=1)
+    except AssistantBackendError as exc:
+        return {
+            "configured": False,
+            "model": client.model,
+            "baseUrl": client.base_url,
+            "envFile": str(env_file) if env_file is not None else "not found",
+            "settingsFile": settings_file,
+            "message": f"Endpoint reachable but failed: {exc.user_message}",
+        }
+    except Exception as exc:
+        return {
+            "configured": False,
+            "model": client.model,
+            "baseUrl": client.base_url,
+            "envFile": str(env_file) if env_file is not None else "not found",
+            "settingsFile": settings_file,
+            "message": f"Could not verify endpoint: {str(exc)}",
+        }
+
     return {
         "configured": True,
         "model": client.model,
         "baseUrl": client.base_url,
         "envFile": str(env_file) if env_file is not None else "not found",
         "settingsFile": settings_file,
-        "message": "Assistant endpoint is configured.",
+        "message": "Assistant endpoint is configured and reachable.",
     }
 
 
@@ -385,7 +424,6 @@ def explain_cell_payload(
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.2,
-        max_tokens=400,
     )
     return {"explanation": response, "model": client.model}
 
@@ -417,7 +455,6 @@ def reflect_prompt_payload(
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.4,
-        max_tokens=120,
     )
     return {"question": response, "model": client.model}
 
@@ -453,7 +490,6 @@ def next_steps_payload(
             {"role": "user", "content": user_prompt},
         ],
         temperature=0.3,
-        max_tokens=250,
     )
     return {"suggestions": response, "model": client.model}
 
@@ -556,72 +592,252 @@ def _normalize_quiz(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_FALLBACK_QUIZZES: dict[str, dict[str, Any]] = {
-    "load": {
-        "question": "What is the main purpose of this cell?",
-        "options": [
-            "It ingests data from an external source into the notebook.",
-            "It trains a machine-learning model on preprocessed data.",
-            "It generates a plot summarizing model performance.",
-            "It refactors helper functions into a module.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Load cells ingest data so later cells can work with it.",
-    },
-    "clean": {
-        "question": "Why does this cell matter in the workflow?",
-        "options": [
-            "It reshapes or filters data so later analysis is correct.",
-            "It evaluates a trained model on a held-out set.",
-            "It prints a summary of the notebook configuration.",
-            "It imports project dependencies.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Clean cells reshape or filter data so later analysis is correct.",
-    },
-    "explore": {
-        "question": "What does this cell mainly help you understand?",
-        "options": [
-            "The structure or distribution of the data.",
-            "How to deploy a model to production.",
-            "Which third-party libraries to install.",
-            "The schema of the output dashboard.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Explore cells reveal structure, summaries, or distributions of the data.",
-    },
-    "visualize": {
-        "question": "What is the primary goal of this visualization cell?",
-        "options": [
-            "To make a pattern or comparison in the data visible.",
-            "To serialize a dataframe to disk.",
-            "To benchmark the Python runtime.",
-            "To install plotting libraries.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Visualization cells make patterns or comparisons in the data visible.",
-    },
-    "model": {
-        "question": "What does this modeling cell commit to?",
-        "options": [
-            "A specific algorithm and the features it will learn from.",
-            "The exact colors of the downstream plots.",
-            "The directory where output files are written.",
-            "The list of packages to pin in requirements.txt.",
-        ],
-        "correctIndex": 0,
-        "explanation": "Modeling cells commit to an algorithm and a feature set for learning.",
-    },
-}
+# ---------------------------------------------------------------------------
+# Mission generation & verification
+# ---------------------------------------------------------------------------
 
 
-def _fallback_quiz(region: str) -> dict[str, Any]:
-    template = _FALLBACK_QUIZZES.get(region) or _FALLBACK_QUIZZES["explore"]
-    # Return a shallow copy so callers can mutate safely.
+_MISSIONS_SYSTEM = (
+    "You are FlowQuest's mission architect for Jupyter notebooks. Given a notebook "
+    "analysis (cell regions, issues, source previews, dependencies), generate exactly "
+    "3 missions that guide the learner through understanding and improving THIS "
+    "specific notebook.\n\n"
+    "Rules:\n"
+    "- Each mission must reference specific cell numbers and explain what to do there\n"
+    "- Distribute missions across categories: exploration, understanding, stabilization, reflection\n"
+    "- Titles must be creative, specific to this notebook's content — never generic\n"
+    "- Descriptions must be concrete and actionable (what exactly to change/add/investigate)\n"
+    "- XP values: 5–12 (harder/more work = more XP)\n"
+    "- completion_criteria: a clear, verifiable condition you can later check by reading "
+    "the updated notebook cells (e.g. 'Cell 4 should contain a .describe() call on the "
+    "main DataFrame' or 'A new cell after cell 7 should evaluate the model with a "
+    "classification_report')\n\n"
+    "Return a JSON object with this exact structure:\n"
+    '{ "missions": [ { "id": "<unique-slug>", "kind": "<exploration|understanding|stabilization|reflection>", '
+    '"title": "<creative title>", "description": "<actionable description>", "xp": <5-12>, '
+    '"cell_indices": [<cell numbers>], "completion_hint": "<short user-facing hint>", '
+    '"completion_criteria": "<verifiable condition>" } ] }'
+)
+
+
+_VERIFY_SYSTEM = (
+    "You are an expert, strict code reviewer evaluating a Jupyter Notebook coding mission.\n"
+    "Given the mission's completion criteria, the original (BEFORE) source code of the relevant cells, "
+    "and the current (AFTER) source code, you must rigorously determine whether the mission has been fulfilled.\n\n"
+    "CRITICAL RULES:\n"
+    "1. Read the criteria carefully. Identify the exact logic, variables, or changes required.\n"
+    "2. Scrutinize the BEFORE and AFTER code. You must explicitly compare them.\n"
+    "3. Do NOT assume the user made changes. The required logic MUST be explicitly present in the AFTER code, and it MUST be a meaningful fix compared to the BEFORE code.\n"
+    "4. If the AFTER code still contains the original bug, is completely unmodified, or lacks the requested fix, you MUST fail the user.\n"
+    "5. Be strict about correctness.\n\n"
+    "Return a JSON object:\n"
+    "{\n"
+    '  "reasoning": "<Step-by-step evaluation comparing the BEFORE and AFTER cell code against the criteria>",\n'
+    '  "passed": <true|false>,\n'
+    '  "feedback": "<1-2 sentences. Congratulatory if passed, constructive hint if not>"\n'
+    "}"
+)
+
+
+def _build_analysis_summary(analysis: dict[str, Any]) -> str:
+    """Build a compact text summary of the analysis for the mission prompt."""
+    parts: list[str] = []
+
+    region_counts = analysis.get("regionCounts") or {}
+    region_line = ", ".join(f"{k}: {v}" for k, v in region_counts.items() if v)
+    if region_line:
+        parts.append(f"Region distribution: {region_line}")
+
+    issues = analysis.get("issues") or []
+    if issues:
+        issue_lines = "\n".join(
+            f"  - cell {i['cell_index']} [{i['severity']}] {i['kind']}: {i['message']}"
+            for i in issues[:15]
+        )
+        parts.append(f"Issues:\n{issue_lines}")
+
+    cells = analysis.get("cells") or []
+    cell_lines: list[str] = []
+    for c in cells[:40]:
+        idx = c.get("index", "?")
+        region = c.get("region", "?")
+        icon = c.get("regionIcon", "")
+        summary = c.get("summary") or ""
+        preview = _clip_text(c.get("sourcePreview") or "", 320)
+        deps = c.get("dependsOn") or []
+        dep_str = f" [depends on: {', '.join(str(d) for d in deps)}]" if deps else ""
+        cell_lines.append(f"  Cell {idx} ({icon}{region}){dep_str}: {summary}\n    {preview}")
+    if cell_lines:
+        parts.append("Cells:\n" + "\n".join(cell_lines))
+
+    return "\n\n".join(parts)
+
+
+def _normalize_mission(raw: dict[str, Any], index: int, cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Validate and normalize a single LLM-generated mission."""
+    mission_id = str(raw.get("id") or f"llm-mission-{index}")[:60]
+    kind = str(raw.get("kind") or "exploration").lower()
+    if kind not in ("exploration", "understanding", "stabilization", "reflection"):
+        kind = "exploration"
+    title = _clip_text(str(raw.get("title") or "Mission"), 120)
+    description = _clip_text(str(raw.get("description") or ""), 800)
+    completion_hint = _clip_text(str(raw.get("completion_hint") or raw.get("completionHint") or ""), 400)
+    completion_criteria = _clip_text(str(raw.get("completion_criteria") or raw.get("completionCriteria") or ""), 400)
+    try:
+        xp = int(raw.get("xp") or 8)
+    except (TypeError, ValueError):
+        xp = 8
+    xp = max(3, min(15, xp))
+
+    cell_indices_raw = raw.get("cell_indices") or raw.get("cellIndices") or []
+    if not isinstance(cell_indices_raw, list):
+        cell_indices_raw = []
+    cell_indices: list[int] = []
+    for ci in cell_indices_raw:
+        try:
+            cell_indices.append(int(ci))
+        except (TypeError, ValueError):
+            continue
+
+    original_sources = {}
+    if cells:
+        for ci in cell_indices:
+            for cell in cells:
+                if cell.get("index") == ci:
+                    original_sources[str(ci)] = cell.get("source") or ""
+                    break
+
     return {
-        "question": template["question"],
-        "options": list(template["options"]),
-        "correctIndex": int(template["correctIndex"]),
-        "explanation": template["explanation"],
+        "id": mission_id,
+        "kind": kind,
+        "title": title,
+        "description": description,
+        "xp": xp,
+        "cell_indices": cell_indices,
+        "completion_hint": completion_hint,
+        "completion_criteria": completion_criteria,
+        "original_sources": original_sources,
     }
 
+
+def generate_missions_payload(
+    analysis: dict[str, Any],
+    start_path: str | Path | None = None,
+    difficulty: str = "medium",
+    cells: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Generate 3 contextual missions from a notebook analysis."""
+    client = AssistantClient.from_env(start_path=start_path)
+    if client is None:
+        raise AssistantBackendError(
+            "Missing endpoint configuration.", kind="auth"
+        )
+
+    profile = _difficulty_profile(difficulty)
+    missions_note = {
+        "easy": "Generate approachable missions a beginner can complete in minutes. Focus on exploration and basic understanding.",
+        "medium": "Generate missions that test practical data science workflow knowledge.",
+        "hard": "Generate missions that probe edge cases, data leakage, reproducibility, and robustness.",
+    }.get(profile.get("label", "medium"), "")
+
+    system_prompt = _MISSIONS_SYSTEM
+    if missions_note:
+        system_prompt += f"\n\nDifficulty: {profile.get('label', 'medium')}. {missions_note}"
+
+    summary = _build_analysis_summary(analysis)
+    user_prompt = f"Notebook analysis:\n{summary}\n\nGenerate exactly 3 missions."
+
+    response = client.chat(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": _clip_text(user_prompt, 12000)},
+        ],
+        temperature=0.4,
+        response_format={"type": "json_object"},
+    )
+
+    try:
+        parsed = _safe_json_object(response)
+    except ValueError:
+        return {"missions": [], "model": client.model}
+
+    raw_missions = parsed.get("missions") or []
+    if not isinstance(raw_missions, list):
+        raw_missions = [parsed] if parsed.get("title") else []
+
+    missions = []
+    for i, raw in enumerate(raw_missions[:3]):
+        if not isinstance(raw, dict):
+            continue
+        try:
+            missions.append(_normalize_mission(raw, i, cells))
+        except (TypeError, ValueError):
+            continue
+
+    return {"missions": missions, "model": client.model}
+
+
+def verify_mission_payload(
+    mission: dict[str, Any],
+    cells: list[dict[str, Any]],
+    start_path: str | Path | None = None,
+    difficulty: str = "medium",
+) -> dict[str, Any]:
+    """Check whether a mission is fulfilled given current cell sources."""
+    client = AssistantClient.from_env(start_path=start_path)
+    if client is None:
+        raise AssistantBackendError(
+            "Missing endpoint configuration.", kind="auth"
+        )
+
+    profile = _difficulty_profile(difficulty)
+    system_prompt = _VERIFY_SYSTEM
+    baseline_note = profile.get("baseline") or ""
+    if baseline_note:
+        system_prompt += f"\n\nDifficulty: {profile.get('label', 'medium')}. {baseline_note}"
+
+    title = str(mission.get("title") or "")
+    description = str(mission.get("description") or "")
+    criteria = str(mission.get("completion_criteria") or mission.get("completionCriteria") or "")
+    original_sources = mission.get("original_sources") or {}
+
+    before_parts: list[str] = []
+    for idx, src in original_sources.items():
+        src_clipped = _clip_text(str(src), 8000)
+        before_parts.append(f"Cell {idx}:\n{src_clipped}")
+    before_text = "\n\n".join(before_parts) if before_parts else "[No before state available. Verify based on AFTER code.]"
+
+    cell_parts: list[str] = []
+    for cell in cells[:50]:
+        idx = cell.get("index", "?")
+        source = _clip_text(str(cell.get("source") or ""), 8000)
+        cell_parts.append(f"Cell {idx}:\n{source}")
+    cells_text = "\n\n".join(cell_parts) if cell_parts else "[no cells provided]"
+
+    user_prompt = (
+        f"Mission: {title}\n"
+        f"Description: {description}\n"
+        f"Completion criteria: {criteria}\n\n"
+        f"--- BEFORE (Original State) ---\n{before_text}\n\n"
+        f"--- AFTER (Current State) ---\n{cells_text}\n\n"
+        "Has the mission been fulfilled?"
+    )
+
+    response = client.chat(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": _clip_text(user_prompt, 64000)},
+        ],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+
+    try:
+        parsed = _safe_json_object(response)
+    except ValueError:
+        return {"passed": False, "feedback": "Could not parse the verification response. Try again."}
+
+    passed = bool(parsed.get("passed"))
+    feedback = _clip_text(str(parsed.get("feedback") or ""), 300)
+
+    return {"passed": passed, "feedback": feedback, "model": client.model}

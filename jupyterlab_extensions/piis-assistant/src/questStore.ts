@@ -16,17 +16,19 @@
 
 import { NotebookPanel } from '@jupyterlab/notebook';
 
-import type { ConversationMessage, DifficultyLevel, QuizRecord } from './types';
+import type { ConversationMessage, DifficultyLevel, Mission, QuizRecord } from './types';
 
 const METADATA_KEY = 'flowquest';
 const QUIZZES_KEY = 'quizzes';
 const CHAT_KEY = 'chat';
+const LLM_MISSIONS_KEY = 'llmMissions';
 const CHAT_LIMIT = 50;
 
 interface RawQuestMetadata {
   difficulty?: string;
   quizzes?: Record<string, QuizRecord>;
   chat?: ConversationMessage[];
+  llmMissions?: Mission[];
 }
 
 export class QuestMetadataStore {
@@ -126,6 +128,27 @@ export class QuestMetadataStore {
     this.scheduleSave();
   }
 
+  /** Read the cached LLM-generated missions. */
+  readLlmMissions(): Mission[] {
+    const missions = this.readRaw().llmMissions;
+    if (!Array.isArray(missions)) {
+      return [];
+    }
+    return missions;
+  }
+
+  /** Cache LLM-generated missions. */
+  writeLlmMissions(missions: Mission[]): void {
+    const model = this.panel.content.model;
+    if (!model) {
+      return;
+    }
+    const existing = this.readRaw();
+    const next: RawQuestMetadata = { ...existing, [LLM_MISSIONS_KEY]: missions };
+    model.sharedModel.setMetadata(METADATA_KEY, next as unknown as never);
+    this.scheduleSave();
+  }
+
   async ensureSaved(): Promise<void> {
     if (this.pendingSaveHandle !== null) {
       window.clearTimeout(this.pendingSaveHandle);
@@ -136,6 +159,24 @@ export class QuestMetadataStore {
     } catch {
       /* ignore */
     }
+  }
+
+  /**
+   * Wipe every FlowQuest field from this notebook's metadata (difficulty,
+   * quizzes, chat) and persist immediately. Used by the "Fresh start"
+   * reset.
+   */
+  clearAll(): void {
+    const model = this.panel.content.model;
+    if (!model) return;
+    if (this.pendingSaveHandle !== null) {
+      window.clearTimeout(this.pendingSaveHandle);
+      this.pendingSaveHandle = null;
+    }
+    model.sharedModel.setMetadata(METADATA_KEY, {} as unknown as never);
+    this.panel.context.save().catch(() => {
+      /* best-effort */
+    });
   }
 
   private scheduleSave(): void {

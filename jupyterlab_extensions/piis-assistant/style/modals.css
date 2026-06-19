@@ -1,0 +1,392 @@
+/*
+ * Modal overlays — the settings panel and the handbook. Both share the same
+ * fixed overlay host, backdrop, and header styling.
+ */
+
+/* ---- Overlay host + backdrop ----------------------------------------- */
+.flowquest-settingsHost,
+.flowquest-handbookHost {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+
+.flowquest-settingsBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(3px);
+}
+
+.flowquest-settingsModal {
+  position: relative;
+  width: min(680px, 92vw);
+  max-height: min(80vh, 720px);
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: var(--jp-layout-color1);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-lg);
+  box-shadow: var(--fq-shadow-pop);
+  font-family: var(--jp-ui-font-family, sans-serif);
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size1, 13px);
+  overflow: hidden;
+}
+
+.flowquest-handbookModal {
+  position: relative;
+  width: min(840px, 94vw);
+  height: min(80vh, 760px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--jp-layout-color1);
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-lg);
+  box-shadow: var(--fq-shadow-pop);
+  font-family: var(--jp-ui-font-family, sans-serif);
+  color: var(--jp-ui-font-color1);
+  font-size: var(--jp-ui-font-size1, 13px);
+  overflow: hidden;
+}
+
+/* ---- Shared header ---------------------------------------------------- */
+.flowquest-settingsHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: var(--fq-border);
+  background: var(--jp-layout-color0);
+}
+
+.flowquest-settingsHeading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.flowquest-handbookHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.flowquest-settingsIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--fq-radius-sm);
+  font-size: 20px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--fq-accent), var(--fq-accent-5));
+}
+
+/* ---- Settings tabs + body -------------------------------------------- */
+.flowquest-settingsTabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-bottom: var(--fq-border);
+}
+
+.flowquest-settingsTab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--jp-ui-font-color2);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: color var(--fq-transition), background var(--fq-transition),
+    border-color var(--fq-transition);
+}
+
+.flowquest-settingsTab.is-active {
+  color: var(--fq-accent);
+  border-bottom-color: var(--fq-accent);
+  background: var(--jp-layout-color1);
+}
+
+.flowquest-settingsTab:hover {
+  background: var(--fq-surface-3);
+}
+
+.flowquest-settingsBody {
+  overflow: auto;
+  padding: 14px 16px;
+  display: grid;
+  gap: 18px;
+}
+
+.flowquest-settingsSection {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius);
+  background: var(--jp-layout-color0);
+}
+
+.flowquest-settingsSection.flowquest-settingsDanger {
+  border-color: color-mix(in srgb, var(--fq-danger) 40%, transparent);
+  background: color-mix(in srgb, var(--fq-danger) 5%, transparent);
+}
+
+.flowquest-formLabel {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--jp-ui-font-color2);
+  font-weight: 700;
+  margin-top: 6px;
+}
+
+.flowquest-formInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: var(--fq-border-strong);
+  background: var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  padding: 8px 10px;
+  font: inherit;
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 12px;
+  border-radius: var(--fq-radius-sm);
+  transition: border-color var(--fq-transition), box-shadow var(--fq-transition);
+}
+
+.flowquest-formInput:focus {
+  outline: none;
+  border-color: var(--fq-accent);
+  box-shadow: 0 0 0 3px var(--fq-accent-soft);
+}
+
+.flowquest-formChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+/* ---- Difficulty selector --------------------------------------------- */
+.flowquest-difficultyGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .flowquest-difficultyGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.flowquest-difficulty {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface);
+  color: var(--jp-ui-font-color1);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition: background var(--fq-transition), box-shadow var(--fq-transition),
+    border-color var(--fq-transition), transform 0.12s var(--fq-ease);
+}
+
+.flowquest-difficulty:hover {
+  background: var(--fq-surface-3);
+  box-shadow: var(--fq-shadow-soft);
+  transform: translateY(-1px);
+}
+
+.flowquest-difficulty.is-active {
+  border-color: var(--fq-accent);
+  background: var(--fq-accent-soft);
+  box-shadow: var(--fq-shadow);
+}
+
+.flowquest-difficultyIcon {
+  font-size: 18px;
+  line-height: 1;
+  display: inline-flex;
+  color: var(--fq-accent);
+}
+
+.flowquest-difficultyLabel {
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-difficultyBlurb {
+  font-size: 11px;
+  color: var(--jp-ui-font-color2);
+  line-height: 1.45;
+}
+
+/* ---- Storage note ----------------------------------------------------- */
+.flowquest-storageNote {
+  margin-top: 4px;
+  padding: 7px 9px;
+  border: var(--fq-border);
+  border-radius: var(--fq-radius-sm);
+  background: var(--fq-surface-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.flowquest-storageNote code {
+  background: var(--fq-surface-3);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+
+.flowquest-storageNote.is-secure {
+  border-left: 3px solid var(--fq-success);
+  background: color-mix(in srgb, var(--fq-success) 8%, transparent);
+}
+
+.flowquest-storageNote.is-warn {
+  border-left: 3px solid var(--fq-warn);
+  background: color-mix(in srgb, var(--fq-warn) 8%, transparent);
+}
+
+/* ---- Handbook body ---------------------------------------------------- */
+.flowquest-handbookBody {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.flowquest-handbookNav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow: auto;
+  border-right: var(--fq-border);
+  background: var(--jp-layout-color0);
+}
+
+.flowquest-handbookNavItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--fq-radius-sm);
+  background: transparent;
+  color: var(--jp-ui-font-color1);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--fq-transition);
+}
+
+.flowquest-handbookNavItem:hover {
+  background: var(--fq-surface-3);
+}
+
+.flowquest-handbookNavItem.is-active {
+  background: var(--fq-accent-soft);
+  box-shadow: inset 3px 0 0 var(--fq-accent);
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-handbookNavIcon {
+  font-size: 15px;
+  line-height: 1;
+  display: inline-flex;
+  color: var(--fq-accent);
+}
+
+.flowquest-handbookContent {
+  overflow: auto;
+  padding: 24px 32px;
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.flowquest-handbookContent h1 {
+  font-family: 'Outfit', var(--jp-ui-font-family, sans-serif);
+  font-size: 24px;
+  font-weight: 800;
+  margin-top: 0;
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--fq-accent), var(--fq-accent-5));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.flowquest-handbookContent h2 {
+  font-family: 'Outfit', var(--jp-ui-font-family, sans-serif);
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 24px;
+  margin-bottom: 12px;
+  color: var(--jp-ui-font-color0);
+  border-bottom: 1px solid var(--fq-border-color);
+  padding-bottom: 6px;
+}
+
+.flowquest-handbookContent ul {
+  padding-left: 20px;
+  margin-bottom: 16px;
+}
+
+.flowquest-handbookContent li {
+  margin-bottom: 6px;
+}
+
+.flowquest-handbookContent p {
+  margin-bottom: 16px;
+}
+
+.flowquest-handbookContent strong {
+  font-weight: 700;
+  color: var(--jp-ui-font-color0);
+}
+
+.flowquest-handbookContent code {
+  background: var(--fq-surface-2);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-family: var(--jp-code-font-family, monospace);
+  font-size: 12px;
+  color: var(--fq-accent-6);
+}
+
+@media (max-width: 640px) {
+  .flowquest-handbookBody {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .flowquest-handbookNav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: var(--fq-border);
+  }
+}

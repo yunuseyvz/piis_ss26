@@ -6,7 +6,7 @@
 export type MessageRole = 'user' | 'assistant';
 export type SidebarPhase = 'idle' | 'loading' | 'ready' | 'error';
 export type ContextMode = 'active-cell' | 'whole-notebook' | 'workspace';
-export type SidebarTab = 'quest' | 'flowy' | 'chat';
+export type SidebarTab = 'quest' | 'cell' | 'chat';
 export type MissionKind =
   | 'exploration'
   | 'understanding'
@@ -123,7 +123,9 @@ export interface Mission {
   xp: number;
   cell_indices: number[];
   completion_hint: string;
-  auto_completable: boolean;
+  /** LLM-verifiable criteria for the Check button. */
+  completion_criteria: string;
+  original_sources?: Record<number, string>;
 }
 
 export type ActivityKind = 'quiz' | 'predict' | 'teachback';
@@ -225,11 +227,8 @@ export interface AnalysisResponse {
   regionCounts: Record<string, number>;
   regionOrder: string[];
   regionIcons: Record<string, string>;
-  missions: Mission[];
-  injectionPoints: InjectionPoint[];
   summary: Record<string, unknown>;
-  questState: QuestState;
-  autoCompleted: Array<{ awardKey: string; category: MissionKind; xp: number; label: string }>;
+  injectionPoints: InjectionPoint[];
 }
 
 export interface ExplainResponse {
@@ -252,6 +251,23 @@ export interface NextStepsResponse {
 export interface ClaimResponse {
   state: QuestState;
   outcome: {
+    granted: boolean;
+    xpAwarded?: number;
+    reason?: string;
+    category?: MissionKind;
+  };
+}
+
+export interface MissionGenerateResponse {
+  missions: Mission[];
+  model: string;
+}
+
+export interface MissionCheckResponse {
+  passed: boolean;
+  feedback: string;
+  state?: QuestState;
+  outcome?: {
     granted: boolean;
     xpAwarded?: number;
     reason?: string;

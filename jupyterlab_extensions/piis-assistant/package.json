@@ -27,15 +27,30 @@
     "@jupyterlab/apputils": "^4.5.0",
     "@jupyterlab/notebook": "^4.5.0",
     "@jupyterlab/services": "^7.5.0",
-    "@lumino/widgets": "^2.5.0"
+    "@lumino/widgets": "^2.5.0",
+    "lucide": "^1.18.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@jupyterlab/builder": "^4.5.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.3"
   },
   "jupyterlab": {
     "extension": true,
-    "outputDir": "jupyterlab_piis_assistant/labextension"
+    "outputDir": "jupyterlab_piis_assistant/labextension",
+    "sharedPackages": {
+      "react": {
+        "bundled": false,
+        "singleton": true
+      },
+      "react-dom": {
+        "bundled": false,
+        "singleton": true
+      }
+    }
   }
 }

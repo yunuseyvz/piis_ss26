@@ -144,9 +144,13 @@ export function renderMarkdown(input: string): string {
       continue;
     }
 
-    // Plain text — accumulate into the current paragraph.
-    closeList();
-    paragraph.push(line.trim());
+    // Plain text — accumulate into the current paragraph or current list item.
+    if (listType) {
+      const lastLine = out.pop()!;
+      out.push(lastLine.replace(/<\/li>$/, ` ${inline(line.trim())}</li>`));
+    } else {
+      paragraph.push(line.trim());
+    }
   }
 
   flushParagraph();

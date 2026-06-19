@@ -16,7 +16,7 @@ import builtins
 import hashlib
 import re
 from dataclasses import dataclass, field, asdict
-from typing import Any, Iterable
+from typing import Any
 
 from .activities import ACTIVITY_SPECS, KIND_QUIZ, activity_spec
 
@@ -221,18 +221,7 @@ class CellAnalysis:
     summary: str = ""
     source_hash: str = ""
     source_preview: str = ""
-
-
-@dataclass
-class Mission:
-    id: str
-    kind: str  # exploration | understanding | stabilization | reflection
-    title: str
-    description: str
-    xp: int
-    cell_indices: list[int]
-    completion_hint: str
-    auto_completable: bool = False
+    import_aliases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -240,7 +229,6 @@ class AnalysisResult:
     cells: list[CellAnalysis]
     issues: list[dict[str, Any]]
     region_counts: dict[str, int]
-    missions: list[Mission]
     summary: dict[str, Any]
     injection_points: list[dict[str, Any]] = field(default_factory=list)
 
@@ -458,8 +446,8 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
             summary=_cell_summary(source),
             source_hash=_hash_source(source) if source.strip() else "",
             source_preview=_clip(source, 320),
+            import_aliases=import_aliases,
         )
-        analysis._import_aliases = import_aliases  # type: ignore[attr-defined]
         analyses.append(analysis)
 
         for name in defines:
@@ -573,7 +561,7 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
     for analysis in analyses:
         if not analysis.defines:
             continue
-        aliases = set(getattr(analysis, "_import_aliases", []))  # type: ignore[attr-defined]
+        aliases = set(analysis.import_aliases)
         unused = [
             name
             for name in analysis.defines
@@ -613,7 +601,6 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
                 }
             )
 
-    missions = generate_missions(analyses, flat_issues)
 
     injection_points = _compute_injection_points(analyses)
 
@@ -630,7 +617,6 @@ def analyze_notebook(payload: Any, notebook_path: str | None = None) -> Analysis
         cells=analyses,
         issues=flat_issues,
         region_counts=region_counts,
-        missions=missions,
         summary=summary,
         injection_points=injection_points,
     )
@@ -735,169 +721,7 @@ def _activity_kind_for(region: str, run_index: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_missions(cells: list[CellAnalysis], issues: list[dict[str, Any]]) -> list[Mission]:
-    missions: list[Mission] = []
 
-    def add(mission: Mission) -> None:
-        missions.append(mission)
-
-    issues_by_kind: dict[str, list[dict[str, Any]]] = {}
-    for issue in issues:
-        issues_by_kind.setdefault(issue["kind"], []).append(issue)
-
-    # Stabilization: unused variables
-    unused = issues_by_kind.get("unused_variable", [])
-    if unused:
-        cell_indices = sorted({i["cell_index"] for i in unused})
-        add(
-            Mission(
-                id="stab-unused-variables",
-                kind="stabilization",
-                title="Revive the dead code",
-                description=f"Your notebook defines {len(unused)} variable group(s) that no later cell uses. "
-                "Either drop the cell or wire the output into your analysis.",
-                xp=6,
-                cell_indices=cell_indices,
-                completion_hint="When the unused variables are gone (or consumed), this mission auto-clears.",
-                auto_completable=True,
-            )
-        )
-
-    # Stabilization: execution order
-    ooo = issues_by_kind.get("out_of_order", [])
-    not_exec = issues_by_kind.get("not_executed", [])
-    if ooo or not_exec:
-        cell_indices = sorted({i["cell_index"] for i in ooo + not_exec})
-        add(
-            Mission(
-                id="stab-rerun-clean",
-                kind="stabilization",
-                title="Fix the flow",
-                description="Some cells were not executed or were run out of order. "
-                "Restart the kernel and run the notebook top to bottom so execution numbers are consistent.",
-                xp=8,
-                cell_indices=cell_indices,
-                completion_hint="This clears once every code cell has an increasing execution number.",
-                auto_completable=True,
-            )
-        )
-
-    # Stabilization: duplicated cells
-    dup = issues_by_kind.get("duplicated", [])
-    if dup:
-        cell_indices = sorted({i["cell_index"] for i in dup})
-        add(
-            Mission(
-                id="stab-dedupe",
-                kind="stabilization",
-                title="Cut the copies",
-                description="Some cells have identical code. Extract a helper function or keep only one authoritative cell.",
-                xp=5,
-                cell_indices=cell_indices,
-                completion_hint="Auto-clears once the duplicates are consolidated.",
-                auto_completable=True,
-            )
-        )
-
-    # Understanding: disconnected cells
-    disc = issues_by_kind.get("disconnected", [])
-    if disc:
-        cell_indices = sorted({i["cell_index"] for i in disc})
-        add(
-            Mission(
-                id="und-wire-orphans",
-                kind="understanding",
-                title="Trace the orphans",
-                description="Some cells do not connect to any other cell's data flow. "
-                "Figure out whether they belong in the story or should be removed.",
-                xp=5,
-                cell_indices=cell_indices,
-                completion_hint="Use the Explain action on each orphan cell to inspect it.",
-            )
-        )
-
-    # Exploration: if there is no visualize region yet but there is data
-    has_data = any(c.region in {"load", "clean", "explore"} for c in cells)
-    has_viz = any(c.region == "visualize" for c in cells)
-    if has_data and not has_viz:
-        add(
-            Mission(
-                id="expl-add-visual",
-                kind="exploration",
-                title="See the shape of your data",
-                description="You have data loading and cleaning but no visualization yet. "
-                "Add a plot to surface missing values or distributions.",
-                xp=8,
-                cell_indices=[],
-                completion_hint="Add any plt/sns/px cell to complete this mission.",
-                auto_completable=True,
-            )
-        )
-
-    # Understanding: if there is a model but no evaluation
-    has_model = any(c.region == "model" for c in cells)
-    if has_model:
-        eval_keywords = ("score", "accuracy_", "report", "confusion_", "cross_val")
-        has_eval = any(
-            any(kw in c.source_preview for kw in eval_keywords)
-            for c in cells
-            if c.region == "model"
-        )
-        if not has_eval:
-            model_cells = sorted({c.index for c in cells if c.region == "model"})
-            add(
-                Mission(
-                    id="und-evaluate-model",
-                    kind="understanding",
-                    title="Put the model on trial",
-                    description="Your notebook trains a model but never scores it. "
-                    "Add an evaluation step so you know whether it actually works.",
-                    xp=10,
-                    cell_indices=model_cells,
-                    completion_hint="Add any score/accuracy/classification_report call.",
-                    auto_completable=True,
-                )
-            )
-
-    # Reflection: pick one model or transform cell and ask "why"
-    reflection_target: CellAnalysis | None = None
-    for preferred in ("model", "clean", "visualize"):
-        for c in cells:
-            if c.region == preferred and c.defines:
-                reflection_target = c
-                break
-        if reflection_target is not None:
-            break
-    if reflection_target is not None:
-        add(
-            Mission(
-                id=f"refl-why-{reflection_target.index}",
-                kind="reflection",
-                title="Explain the choice",
-                description=f"Cell {reflection_target.index + 1} ({reflection_target.region}) makes a decision. "
-                "Open the reflect action on it and write in your own words why this choice belongs in the workflow.",
-                xp=6,
-                cell_indices=[reflection_target.index],
-                completion_hint="Use the Reflect action on the highlighted cell and claim the XP.",
-            )
-        )
-
-    # Exploration baseline
-    if not missions and cells:
-        mid_index = min(len(cells) - 1, max(0, len(cells) // 2))
-        add(
-            Mission(
-                id="expl-tour",
-                kind="exploration",
-                title="Take the grand tour",
-                description="Explore at least three different workflow regions to claim this XP.",
-                xp=5,
-                cell_indices=[0, mid_index, len(cells) - 1],
-                completion_hint="Click Explain on three different cells across the notebook.",
-            )
-        )
-
-    return missions
 
 
 # ---------------------------------------------------------------------------
@@ -932,7 +756,6 @@ def result_to_dict(result: AnalysisResult) -> dict[str, Any]:
         "regionCounts": result.region_counts,
         "regionOrder": REGION_ORDER,
         "regionIcons": REGION_ICONS,
-        "missions": [asdict(m) for m in result.missions],
         "injectionPoints": result.injection_points,
         "summary": result.summary,
     }
@@ -941,10 +764,8 @@ def result_to_dict(result: AnalysisResult) -> dict[str, Any]:
 __all__ = [
     "analyze_notebook",
     "result_to_dict",
-    "generate_missions",
     "AnalysisResult",
     "CellAnalysis",
-    "Mission",
     "REGION_ICONS",
     "REGION_ORDER",
 ]

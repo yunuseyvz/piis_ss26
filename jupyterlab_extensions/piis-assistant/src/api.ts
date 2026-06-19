@@ -83,12 +83,3 @@ export function clipText(value: string, limit = 1200): string {
   }
   return `${normalized.slice(0, limit - 1)}…`;
 }
-
-export function hashSourceClient(source: string): string {
-  // Simple djb2-style hash used to create a stable cell identity for XP tracking.
-  let hash = 5381;
-  for (let i = 0; i < source.length; i += 1) {
-    hash = ((hash << 5) + hash + source.charCodeAt(i)) & 0xffffffff;
-  }
-  return `explain-${(hash >>> 0).toString(16)}`;
-}
