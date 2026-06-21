@@ -38,6 +38,7 @@ from .ai_backend import (
 KIND_QUIZ = "quiz"
 KIND_PREDICT = "predict"
 KIND_TEACHBACK = "teachback"
+KIND_DOCUMENT = "document"
 
 # Response shapes.
 RESPONSE_CHOICE = "choice"
@@ -79,6 +80,15 @@ ACTIVITY_SPECS: dict[str, dict[str, Any]] = {
         "category": "reflection",
         "regions": ("load", "clean", "explore", "visualize", "model"),
         "topic": "explain this part of the workflow in your own words",
+    },
+    KIND_DOCUMENT: {
+        "kind": KIND_DOCUMENT,
+        "label": "Write documentation",
+        "icon": "📝",
+        "response": RESPONSE_OPEN,
+        "category": "reflection",
+        "regions": ("load", "clean", "explore", "visualize", "model"),
+        "topic": "write clear documentation for this notebook step",
     },
 }
 
@@ -159,6 +169,24 @@ _SYSTEM_PROMPTS: dict[str, str] = {
         "- the prompt invites explanation, not a yes/no answer\n"
         "- rubric points are concrete and checkable\n"
         "- keep every field under 220 characters\n"
+    ),
+    KIND_DOCUMENT: (
+        "You are FlowQuest's documentation coach. Given a cell from a Jupyter "
+        "notebook, create a documentation task for the learner. The task should "
+        "ask them to write documentation that could be inserted into the notebook "
+        "or codebase, not merely explain the code in their own words. "
+        "Prefer concrete deliverables such as a markdown cell, inline comments, "
+        "a short docstring, or a note explaining assumptions and design choices. "
+        "Also produce a tiny grading rubric: 2-4 short key points a good answer "
+        "should include. Output MUST be valid JSON in this exact shape, no prose, "
+        "no markdown fences:\n"
+        '{"prompt": "", "rubric": ["", ""], "hint": ""}\n'
+        "Rules:\n"
+        "- the prompt asks for a documentation artifact, not a teach-back explanation\n"
+        "- include a concrete format: markdown cell, comments, docstring, or assumptions note\n"
+        "- the documentation should help a future reader continue the notebook\n"
+        "- rubric points are concrete and checkable\n"
+        "- keep every field under 240 characters\n"
     ),
 }
 
@@ -260,7 +288,6 @@ def generate_activity(
     payload["response"] = spec["response"]
     payload.setdefault("model", client.model)
     return payload
-
 
 def _generate_json(
     client: AssistantClient, system_prompt: str, user_prompt: str
@@ -427,6 +454,7 @@ __all__ = [
     "KIND_QUIZ",
     "KIND_PREDICT",
     "KIND_TEACHBACK",
+    "KIND_DOCUMENT",
     "ACTIVITY_SPECS",
     "activity_spec",
     "is_open",
