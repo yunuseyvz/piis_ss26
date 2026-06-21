@@ -43,6 +43,45 @@ Once JupyterLab is open:
 
 A `.env.example` is included if you'd rather configure the LLM endpoint that way; it's read as a fallback.
 
+## Running on Windows with WSL
+
+From Ubuntu WSL, you can run the project directly from the Windows folder:
+
+```bash
+cd /mnt/c/Users/<your-user>/piis_ss26
+rm -rf .venv
+export UV_LINK_MODE=copy
+uv sync
+```
+
+If the setup script has Windows line endings, fix it once:
+
+```bash
+sed -i 's/\r$//' scripts/setup.sh
+```
+
+Then build and run:
+
+```bash
+bash scripts/setup.sh
+uv run jupyter lab examples
+```
+
+Open the printed `http://localhost:8888/lab?token=...` URL in your Windows browser.
+
+To verify the extension:
+
+```bash
+uv run jupyter labextension list | grep piis
+```
+
+Expected:
+
+```text
+jupyterlab-piis-assistant v0.1.0 enabled OK
+```
+
+
 ## What FlowQuest does
 
 | Surface | What it shows |
