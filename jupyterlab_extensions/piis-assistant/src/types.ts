@@ -128,7 +128,7 @@ export interface Mission {
   original_sources?: Record<number, string>;
 }
 
-export type ActivityKind = 'quiz' | 'predict' | 'teachback';
+export type ActivityKind = 'quiz' | 'predict' | 'teachback' | 'document';
 export type ActivityResponse = 'choice' | 'open';
 
 export interface InjectionPoint {

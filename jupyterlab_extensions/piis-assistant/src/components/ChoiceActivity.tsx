@@ -41,7 +41,15 @@ const COPY: Record<
     introTitle: 'Checkpoint',
     introBody: () => 'Answer to earn XP.',
     cta: 'Start'
+  },
+  document: {
+    eyebrow: 'Documentation',
+    introTitle: 'Write documentation',
+    introBody: topic =>
+      `Write short markdown documentation for this step: ${topic}`,
+    cta: 'Write documentation'
   }
+
 };
 
 export function ChoiceActivity({

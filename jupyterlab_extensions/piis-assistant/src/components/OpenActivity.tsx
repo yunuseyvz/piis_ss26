@@ -1,8 +1,8 @@
 /**
- * React renderer for open-ended "teach it back" between-cell activities.
+ * React renderer for open-ended between-cell activities.
  */
 
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { activityIcon, regionIcon } from '../icons';
 import type { CellAnalysis, InjectionPoint, QuizRecord } from '../types';
@@ -36,30 +36,42 @@ export function OpenActivity({
   const regionGlyph = regionIcon(slot.region);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [draft, setDraft] = useState('');
+
+  const isDocument = slot.kind === 'document';
+  const iconKind = isDocument ? 'document' : 'teachback';
+
   const verdict = record?.openVerdict ?? null;
   const passed = Boolean(verdict?.passed);
   const status = !record ? 'empty' : passed ? 'solved' : record.attempts > 0 ? 'in-progress' : 'ready';
+
+  useEffect(() => {
+    setDraft(record?.openAnswer ?? '');
+  }, [record?.open?.prompt, record?.openAnswer]);
 
   return (
     <div className={`flowquest-questCellInner flowquest-questCellInner-${slot.region}`}>
       <header className={`flowquest-questCellHeader flowquest-questCellHeader-${slot.region}`}>
         <div className="flowquest-questCellHeaderTop">
-          <span className="flowquest-questCellEyebrow">FlowQuest · teach it back</span>
+          <span className="flowquest-questCellEyebrow">
+            FlowQuest · {isDocument ? 'documentation' : 'teach it back'}
+          </span>
           <span className={`flowquest-questCellStatus flowquest-questCellStatus-${status}`}>
-            {statusLabel(status, record)}
+            {statusLabel(status, record, iconKind)}
           </span>
         </div>
+
         <div className="flowquest-questCellHeaderMain">
           <span
             className="flowquest-questCellMark"
-            dangerouslySetInnerHTML={{ __html: activityIcon('teachback') }}
+            dangerouslySetInnerHTML={{ __html: activityIcon(iconKind) }}
           />
           <div className="flowquest-questCellHeaderTitle">
             <div className="flowquest-questCellRegion">
               <span className="flowquest-questCellRegionIcon">
                 <span dangerouslySetInnerHTML={{ __html: regionGlyph }} />
               </span>
-              <span>{slot.kindLabel || 'Teach it back'}</span>
+              <span>{slot.kindLabel || openActivityTitle(slot.kind)}</span>
             </div>
             <div className="flowquest-questCellAnchor">on {anchorLabel}</div>
           </div>
@@ -95,16 +107,26 @@ export function OpenActivity({
           <div className="flowquest-questCellIntro">
             <div
               className="flowquest-questCellIntroIcon"
-              dangerouslySetInnerHTML={{ __html: activityIcon('teachback') }}
+              dangerouslySetInnerHTML={{ __html: activityIcon(iconKind) }}
             />
             <div className="flowquest-questCellIntroBody">
-              <div className="flowquest-questCellIntroTitle">Explain it in your own words</div>
+              <div className="flowquest-questCellIntroTitle">{openActivityTitle(slot.kind)}</div>
               <p>
-                FlowQuest will ask you to teach back <strong>{slot.topic}</strong>. Your answer is
-                graded by the assistant. <strong>+8 XP</strong> on a pass.
+                {isDocument ? (
+                  <>
+                    FlowQuest will ask you to write documentation for <strong>{slot.topic}</strong>. Your answer is
+                    graded by the assistant. <strong>+8 XP</strong> on a pass.
+                  </>
+                ) : (
+                  <>
+                    FlowQuest will ask you to teach back <strong>{slot.topic}</strong>. Your answer is
+                    graded by the assistant. <strong>+8 XP</strong> on a pass.
+                  </>
+                )}
               </p>
             </div>
           </div>
+
           <div className="flowquest-actionsRow">
             <button
               type="button"
@@ -116,10 +138,11 @@ export function OpenActivity({
                 'Preparing…'
               ) : (
                 <>
-                  <span dangerouslySetInnerHTML={{ __html: activityIcon('teachback') }} /> Get my prompt
+                  <span dangerouslySetInnerHTML={{ __html: activityIcon(iconKind) }} /> Get my prompt
                 </>
               )}
             </button>
+
             <button type="button" className="flowquest-btn flowquest-btn-ghost" onClick={onDismiss}>
               Skip
             </button>
@@ -129,29 +152,42 @@ export function OpenActivity({
     }
 
     const open = record.open;
-    const answer = record.openAnswer ?? '';
     const grading = loading && Boolean(record.open);
 
     return (
       <>
         <div className="flowquest-quizQuestion">{open.prompt}</div>
+
         {open.hint && !passed && (
           <div className="flowquest-questCellHint">
             <Icon name="hint" /> {open.hint}
           </div>
         )}
+
         <textarea
           ref={textareaRef}
           className="flowquest-textarea"
-          rows={3}
+          rows={isDocument ? 5 : 3}
           disabled={passed}
-          placeholder="Explain in a sentence or two…"
-          value={answer}
-          onChange={e => onDraftChange(e.target.value)}
+          placeholder={
+            isDocument
+              ? 'Write documentation for this notebook step…'
+              : 'Explain in a sentence or two…'
+          }
+          value={draft}
+          onChange={e => {
+            const next = e.target.value;
+            setDraft(next);
+            onDraftChange(next);
+          }}
+          onMouseDown={stopPropagation}
+          onClick={stopPropagation}
+          onDoubleClick={stopPropagation}
           onKeyDown={stopPropagation}
           onKeyPress={stopPropagation}
           onKeyUp={stopPropagation}
         />
+
         {verdict && (
           <div className={`flowquest-quizFeedback ${passed ? 'is-correct' : 'is-wrong'}`}>
             <span className="flowquest-quizFeedbackIcon">
@@ -165,7 +201,9 @@ export function OpenActivity({
             </span>
           </div>
         )}
+
         {record.awardedXp > 0 && <div className="flowquest-quizXp">+{record.awardedXp} XP earned</div>}
+
         <div className="flowquest-actionsRow">
           {passed ? (
             <button type="button" className="flowquest-btn flowquest-btn-ghost" onClick={onGenerate}>
@@ -176,7 +214,7 @@ export function OpenActivity({
               <button
                 type="button"
                 className="flowquest-btn flowquest-btn-primary"
-                onClick={() => onSubmit(textareaRef.current?.value ?? '')}
+                onClick={() => onSubmit(draft)}
                 disabled={grading}
               >
                 {grading ? <Spinner label="Grading…" inline /> : 'Submit answer'}
@@ -192,7 +230,18 @@ export function OpenActivity({
   }
 }
 
-function statusLabel(status: string, record: QuizRecord | null): JSX.Element {
+function openActivityTitle(kind: string): string {
+  if (kind === 'document') {
+    return 'Write documentation';
+  }
+  return 'Explain it in your own words';
+}
+
+function statusLabel(
+  status: string,
+  record: QuizRecord | null,
+  iconKind: 'teachback' | 'document'
+): JSX.Element {
   if (status === 'solved') {
     return (
       <>
@@ -200,16 +249,19 @@ function statusLabel(status: string, record: QuizRecord | null): JSX.Element {
       </>
     );
   }
+
   if (status === 'in-progress' && record) {
     return <>attempt {record.attempts}</>;
   }
+
   if (status === 'ready') {
     return (
       <>
-        <span dangerouslySetInnerHTML={{ __html: activityIcon('teachback') }} /> ready
+        <span dangerouslySetInnerHTML={{ __html: activityIcon(iconKind) }} /> ready
       </>
     );
   }
+
   return (
     <>
       <Icon name="brand" /> checkpoint
@@ -217,6 +269,10 @@ function statusLabel(status: string, record: QuizRecord | null): JSX.Element {
   );
 }
 
-function stopPropagation(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
+function stopPropagation(
+  event:
+    | React.KeyboardEvent<HTMLTextAreaElement>
+    | React.MouseEvent<HTMLTextAreaElement>
+): void {
   event.stopPropagation();
 }

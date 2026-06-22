@@ -223,19 +223,19 @@ export class QuestCellRenderer {
         quiz: isOpen
           ? { question: '', options: [], correctIndex: 0, explanation: '' }
           : {
-              question: generated.question ?? 'What does this cell do?',
-              options: generated.options ?? [],
-              correctIndex: generated.correctIndex ?? 0,
-              explanation: generated.explanation ?? '',
-              model: generated.model
-            },
+            question: generated.question ?? 'What does this cell do?',
+            options: generated.options ?? [],
+            correctIndex: generated.correctIndex ?? 0,
+            explanation: generated.explanation ?? '',
+            model: generated.model
+          },
         open: isOpen
           ? {
-              prompt: generated.prompt ?? 'Explain what this cell does.',
-              rubric: generated.rubric ?? [],
-              hint: generated.hint ?? '',
-              model: generated.model
-            }
+            prompt: generated.prompt ?? 'Explain what this cell does.',
+            rubric: generated.rubric ?? [],
+            hint: generated.hint ?? '',
+            model: generated.model
+          }
           : undefined,
         openAnswer: '',
         openVerdict: null,
@@ -368,7 +368,9 @@ export class QuestCellRenderer {
     }
 
     const kind = entry.slot.kind;
-    if (kind === 'teachback') {
+    const isOpen = entry.slot.response === 'open';
+
+    if (isOpen) {
       entry.root.render(
         <OpenActivity
           slot={entry.slot}
@@ -413,9 +415,9 @@ export class QuestCellRenderer {
 
     entry.root.render(
       <div className="flowquest-questCellStub">
-        <span 
-          className="flowquest-questCellStubIcon" 
-          dangerouslySetInnerHTML={{ __html: iconHtml }} 
+        <span
+          className="flowquest-questCellStubIcon"
+          dangerouslySetInnerHTML={{ __html: iconHtml }}
         />
         <div className="flowquest-questCellStubBody">
           <div className="flowquest-questCellStubTitle">{labelText}</div>
@@ -423,8 +425,8 @@ export class QuestCellRenderer {
             {slot.region} checkpoint on {anchorLabel}
           </div>
         </div>
-        <button 
-          type="button" 
+        <button
+          type="button"
           className="flowquest-btn flowquest-btn-ghost"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
