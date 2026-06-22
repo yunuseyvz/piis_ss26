@@ -138,18 +138,18 @@
 .flowquest-tabs {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(var(--fq-tab-count, 3), 1fr);
   border-bottom: var(--fq-border);
   background: var(--jp-layout-color1);
 }
 
-/* Sliding indicator: width = one third, translated by the active index. */
+/* Sliding indicator: width = one tab slot, translated by the active index. */
 .flowquest-tabIndicator {
   position: absolute;
   bottom: 0;
   left: 0;
   height: 2.5px;
-  width: calc(100% / 3);
+  width: calc(100% / var(--fq-tab-count, 3));
   border-radius: var(--fq-radius-pill) var(--fq-radius-pill) 0 0;
   background: var(--fq-grad-brand);
   box-shadow: 0 0 10px var(--fq-accent-glow);

@@ -2,6 +2,7 @@ import { JupyterFrontEnd } from '@jupyterlab/application';
 import { ICommandPalette } from '@jupyterlab/apputils';
 
 import { AssistantSidebar } from './sidebar';
+import { ENABLE_CHAT_TAB } from './components/SidebarApp';
 
 export const COMMAND_FOCUS_SIDEBAR = 'jupyterlab-piis-assistant:focus-sidebar';
 export const COMMAND_SEND_ACTIVE_CELL = 'jupyterlab-piis-assistant:send-active-cell';
@@ -48,6 +49,7 @@ export function registerCommands(deps: CommandDependencies): void {
 
   app.commands.addCommand(COMMAND_SEND_ACTIVE_CELL, {
     label: 'FlowQuest: Ask About Attached Context',
+    isVisible: () => ENABLE_CHAT_TAB,
     execute: () => {
       app.shell.activateById(AssistantSidebar.ID);
       sidebar.showTab('chat');
@@ -57,6 +59,7 @@ export function registerCommands(deps: CommandDependencies): void {
 
   app.commands.addCommand(COMMAND_EXPLAIN_OUTPUT, {
     label: 'FlowQuest: Explain Selected Output',
+    isVisible: () => ENABLE_CHAT_TAB,
     execute: () => {
       app.shell.activateById(AssistantSidebar.ID);
       sidebar.showTab('chat');

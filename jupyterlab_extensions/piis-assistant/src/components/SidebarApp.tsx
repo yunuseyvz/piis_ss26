@@ -38,6 +38,14 @@ import { ActiveCellSection } from './sidebar/FlowyTab';
 
 const MESSAGE_HISTORY_LIMIT = 10;
 
+/**
+ * Feature flag for the Chat tab in the sidebar.
+ * When `false`, the Chat tab is hidden and only Quest + Cell (Flowy) tabs
+ * are shown. The chat implementation is kept intact so it can be re-enabled
+ * by flipping this boolean.
+ */
+export const ENABLE_CHAT_TAB = false;
+
 
 
 const INITIAL_MESSAGE: ConversationMessage = {
@@ -402,12 +410,14 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
       void submitPromptInternal(prompts[starter]);
     };
 
-    const tabs: Array<{ id: SidebarTab; icon: 'quest' | 'chat' | 'flowy'; label: string }> = [
+    const allTabs: Array<{ id: SidebarTab; icon: 'quest' | 'chat' | 'flowy'; label: string }> = [
       { id: 'quest', icon: 'quest', label: 'Quest' },
       { id: 'cell', icon: 'flowy', label: 'Cell' },
       { id: 'chat', icon: 'chat', label: 'Chat' }
     ];
+    const tabs = allTabs.filter(t => ENABLE_CHAT_TAB || t.id !== 'chat');
     const activeIndex = Math.max(0, tabs.findIndex(t => t.id === tab));
+    const tabCount = tabs.length;
 
     const statusClass = status.configured ? 'is-live' : 'is-missing';
     const bodyRef = useRef<HTMLDivElement>(null);
@@ -470,7 +480,16 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
           <CategoryChart state={globalState} />
         </header>
 
-        <nav className="flowquest-tabs" role="tablist" style={{ '--fq-tab-index': activeIndex } as React.CSSProperties}>
+        <nav
+          className="flowquest-tabs"
+          role="tablist"
+          style={
+            {
+              '--fq-tab-index': activeIndex,
+              '--fq-tab-count': tabCount
+            } as React.CSSProperties
+          }
+        >
           {tabs.map(t => (
             <button
               key={t.id}
@@ -530,7 +549,7 @@ export const SidebarApp = forwardRef<SidebarAppHandle, SidebarAppProps>(
               }}
             />
           )}
-          {tab === 'chat' && (
+          {tab === 'chat' && ENABLE_CHAT_TAB && (
             <ChatTab
               configured={status.configured}
               notebook={notebook}
